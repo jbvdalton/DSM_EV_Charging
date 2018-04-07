@@ -1,0 +1,192 @@
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 17:25:45 Page 1
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+C o m p i l a t i o n
+
+
+   1  *cd /Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob
+   2   
+   3  Sets
+   4  t       number of time steps /t1*t16/
+   5  *t1 = 16:00pm, t16 = 10:00am
+   6  i       number of vehicles /i1*i3/
+   7  w       scenarios /w1,w2/
+   8  ;
+   9   
+  10  Scalar
+  11  Eff_ch                  Efficiency of charge /0.9/
+  12  min_ch                  Minimum charge /0/
+  13  ;
+  14   
+  15  Parameters
+  16  Pi(w)                   Probability of scenario w /w1=0.5, w2=0.5/
+  17  LambdaDA(t)                             DA price
+  18  LambdaRT(t,w)                   RT price
+  19  LambdaR(t)                              DA regulation price
+  20  u(t,i,w)                bnary parameter equal to 1 when ith vehicle is between T_arr & T_dep
+  21  Ebat_max(i)             Energy capacity of EV battery
+  22  P_ch(i)                 Charger power
+  23  T_arr(i,w)              Arrival time
+  24  T_dep(i,w)              Departure time
+  25  SOC_arr(i,w)            State of Energy
+  26  SOC_dep(i,w)            SOC departure
+  27  ;
+  28   
+GDXIN   /Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob/Vagro_2S.gdx
+--- LOAD  LambdaDA = 4:LambdaDA
+--- LOAD  LambdaRT = 5:LambdaRT
+--- LOAD  LambdaR = 6:LambdaR
+--- LOAD  u = 7:u
+--- LOAD  Ebat_max = 8:Ebat_max
+--- LOAD  P_ch = 9:P_ch
+--- LOAD  T_arr = 10:T_arr
+--- LOAD  T_dep = 11:T_dep
+--- LOAD  SOC_arr = 12:SOC_arr
+--- LOAD  SOC_dep = 13:SOC_dep
+  32   
+  33  Variables
+  34  SOC(t,i,w)              SOC
+  35  E_DA(t)                 Energy bid day ahead
+  36  R_DA(t)                 Regulation bid day ahead
+  37  E_RT(t,w)               Energy consumption RT Total
+  38  E_RTi(t,i,w)            Energy consumption RT of ith vehicle
+  39  Pmax(t,i,w)                             Max RT Power consumption of ith vehicle
+  40  Delta_E(t,w)            Energy difference RT & DA
+  41  Pmax(t,i,w)                             Max RT Power consumption of ith vehicle
+  42  Profit                  Aggregator Profit
+  43  A                                               DA cost
+  44  B                                               RT Cost
+  45  R                                               Regulation Return
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 17:25:45 Page 2
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+C o m p i l a t i o n
+
+
+  46  *Rup(t)                                 Regulation up max
+  47  *Rdw(t)                                 Regulation down max
+  48  *E_DAo(t)                               E_DAout
+  49  ;
+  50   
+  51  Equations
+  52  Obj                     Objective function
+  53  Aeq                                             Obj1 DA Cost
+  54  Beq                                             Obj2 RT Cost
+  55  Req                                             Obj3 Reg. Return
+  56  Edev_eq(t,w)            Energy Deviation between RT & DA
+  57  E_RT_eq(t,w)            Energy consumption RT
+  58  E_RTi_eq(t,i,w)         Energy consumption i RT
+  59  Pmax_eq(t,i,w)                  Pmax
+  60  SOC_eq(t,i,w)           State of charge time plus 1
+  61  SOC_Tdep(t,i,w)         SOC at departure
+  62  SOC_Tarr(t,i,w)         SOC at arrival
+  63  R_up(t,w)               Regulation up max
+  64  R_d(t,w)                Regulation down max
+  65  Evol(t)                                 Volume constraint
+  66  *Regu(t,w)                              Regulation DA up boundary
+  67  *Regd(t,w)                              Regulation DA down boundary
+  68  *E_DAeq(t)                              E_DAout
+  69  ;
+  70   
+  71  Obj .. R - A - B =e= Profit;
+  72   
+  73  Aeq .. A =e= 1/1000 * sum(t,LambdaDA(t) * E_DA(t));
+  74  Beq .. B =e= 1/1000 * sum(w, Pi(w) * sum(t,LambdaRT(t,w) * Delta_E(t,w)));
+  75  Req .. R =e= 1/1000 * sum(t,LambdaR(t) * R_DA(t));
+  76   
+  77  Edev_eq(t,w) .. Delta_E(t,w) =e= E_RT(t,w) - E_DA(t);
+  78  E_RT_eq(t,w) .. E_RT(t,w) =e= sum(i, E_RTi(t,i,w));
+  79  E_RTi_eq(t,i,w) .. E_RTi(t,i,w) =l= (Pmax(t,i,w) + Pmax (t+1,i,w))/2;
+  80  Pmax_eq(t,i,w) .. Pmax(t,i,w) =l= u(t,i,w) * P_ch(i);
+  81   
+  82  * and ord(t) le T_dep(i,w)
+  83  SOC_eq(t,i,w)$(ord(t) gt T_arr(i,w)) ..
+  84  SOC(t,i,w) =e= SOC(t-1,i,w) + (Eff_ch * E_RTi(t-1,i,w)/Ebat_max(i));
+  85   
+  86  SOC_Tdep(t,i,w)$(ord(t) ge T_dep(i,w)) .. SOC(t,i,w) =e= SOC_dep(i,w);
+  87  SOC_Tarr(t,i,w)$(ord(t) eq T_arr(i,w)) .. SOC(t,i,w) =e= SOC_arr(i,w);
+  88   
+  89  R_up(t,w) .. R_DA(t) =l= E_RT(t,w);
+  90  R_d(t,w) .. R_DA(t) =l= sum(i, u(t,i,w) * P_ch(i)) - E_RT(t,w);
+  91  Evol    .. sum(t,E_DA(t) =l= sum(t,E_RT(t));
+****           $148              $8            $148
+  92  *Regu(t,w) .. R_DA(t) =l= Rup(t);
+  93  *Regd(t,w) .. R_DA(t) =l= Rdw(t);
+  94   
+  95   
+  96  E_RTi.lo(t,i,w) = 0;
+  97  *E_RTi.up(t,i,w) = u(t,i,w) * P_ch(i);
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 17:25:45 Page 3
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+C o m p i l a t i o n
+
+
+  98  E_DA.lo(t) = 0;
+  99  E_DA.up(t) = sum(i, P_ch(i));
+ 100  SOC.lo(t,i,w) = min_ch;
+ 101  SOC.up(t,i,w) = 1;
+ 102   
+ 103  Model
+ 104  Maxprofit /all/
+ 105  ;
+ 106   
+ 107  Solve
+ 108  Maxprofit using MIP maximizing Profit
+ 109  ;
+****  $257
+ 110   
+ 111  Display
+ 112  profit.l, A.l, B.l, R.l, E_DA.l, Delta_E.l, R_DA.l, E_RTi.l, E_RT.l, SOC.l
+****         $141 $141 $141 $141               $141    $141             $141
+ 113  ;
+ 114   
+ 115  file output;
+ 116  R_DA.l(t)$(Not R_DA.l(t)) = EPS;
+ 117  E_DA.l(t)$(Not E_DA.l(t)) = EPS;
+ 118  Delta_E.l(t,w)$(Not Delta_E.l(t,w)) = EPS;
+ 119  E_RT.l(t,w)$(Not E_RT.l(t,w)) = EPS;
+ 120  E_RTi.l(t,i,w)$(Not E_RTi.l(t,i,w)) = EPS;
+ 121  SOC.l(t,i,w)$(Not SOC.l(t,i,w)) = EPS;
+ 122   
+ 123  Execute_unload
+ 124   '/Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob/Vagro.gdx'
+ 125  ;
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 17:25:45 Page 4
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Error Messages
+
+
+  8  ')' expected
+141  Symbol declared but no values have been assigned. Check for missing
+        data definition, assignment, data loading or implicit assignment
+        via a solve statement.
+        A wild shot: You may have spurious commas in the explanatory
+        text of a declaration. Check symbol reference list.
+148  Dimension different - The symbol is referenced with more/less
+        indices as declared
+257  Solve statement not checked because of previous errors
+
+**** 11 ERROR(S)   0 WARNING(S)
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 17:25:45 Page 5
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Include File Summary
+
+
+   SEQ   GLOBAL TYPE      PARENT   LOCAL  FILENAME
+
+     1        1 INPUT          0       0  /Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob/Vagro_2S_wgdx.gms
+     2       29 GDXIN          1      29  /Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob/Vagro_2S.gdx
+
+
+COMPILATION TIME     =        0.007 SECONDS      3 MB  24.8.5 r61358 DEX-DEG
+
+
+USER: Medium MUD - 10 User License                   S160610:1022AN-GEN
+      Royal Institute of Technology (KTH), Electricity Market ResDC8861
+      License for teaching and research at degree granting institutions
+
+
+**** FILE SUMMARY
+
+Input      /Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob/Vagro_2S_wgdx.gms
+Output     /Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob/Vagro_2S_wgdx.lst
+
+**** USER ERROR(S) ENCOUNTERED

@@ -1,0 +1,2660 @@
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 16:09:42 Page 1
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+C o m p i l a t i o n
+
+
+   1  *cd /Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob
+   2   
+   3  Sets
+   4  t       number of time steps /t1*t16/
+   5  *t1 = 16:00pm, t16 = 10:00am
+   6  i       number of vehicles /i1*i3/
+   7  w       scenarios /w1,w2,w3/
+   8  ;
+   9   
+  10  Scalar
+  11  Eff_ch                  Efficiency of charge /0.9/
+  12  min_ch                  Minimum charge /0/
+  13  ;
+  14   
+  15  Parameters
+  16  Pi(w)                   Probability of scenario w /w1=0.5, w2=0.3, w3 = 0.2/
+  17  LambdaDA(t)                             DA price
+  18  LambdaRT(t,w)                   RT price
+  19  LambdaR(t)                              DA regulation price
+  20  u(t,i,w)                bnary parameter equal to 1 when ith vehicle is between T_arr & T_dep
+  21  Ebat_max(i)             Energy capacity of EV battery
+  22  P_ch(i)                 Charger power
+  23  T_arr(i,w)              Arrival time
+  24  T_dep(i,w)              Departure time
+  25  SOC_arr(i,w)            State of Energy
+  26  SOC_dep(i,w)            SOC departure
+  27  ;
+  28   
+GDXIN   /Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob/Vagro_3S.gdx
+--- LOAD  LambdaDA = 4:LambdaDA
+--- LOAD  LambdaRT = 5:LambdaRT
+--- LOAD  LambdaR = 6:LambdaR
+--- LOAD  u = 7:u
+--- LOAD  Ebat_max = 8:Ebat_max
+--- LOAD  P_ch = 9:P_ch
+--- LOAD  T_arr = 10:T_arr
+--- LOAD  T_dep = 11:T_dep
+--- LOAD  SOC_arr = 12:SOC_arr
+--- LOAD  SOC_dep = 13:SOC_dep
+  32   
+  33  Variables
+  34  SOC(t,i,w)              SOC
+  35  E_DA(t)                 Energy bid day ahead
+  36  R_DA(t)                 Regulation bid day ahead
+  37  E_RT(t,w)               Energy consumption RT Total
+  38  E_RTi(t,i,w)            Energy consumption RT of ith vehicle
+  39  Pmax(t,i,w)                             Max RT Power consumption of ith vehicle
+  40  Delta_E(t,w)            Energy difference RT & DA
+  41  Profit                  Aggregator Profit
+  42  A                                               DA cost
+  43  B                                               RT Cost
+  44  R                                               Regulation Return
+  45  Full(t,i,w)                     Fully charged
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 16:09:42 Page 2
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+C o m p i l a t i o n
+
+
+  46  *Rup(t)                                 Regulation up max
+  47  *Rdw(t)                                 Regulation down max
+  48  ;
+  49   
+  50  Equations
+  51  Obj                     Objective function
+  52  Aeq                                             Obj1 DA Cost
+  53  Beq                                             Obj2 RT Cost
+  54  Req                                             Obj3 Reg. Return
+  55  Edev_eq(t,w)            Energy Deviation between RT & DA
+  56  E_RT_eq(t,w)            Energy consumption RT
+  57  E_RTi_eq(t,i,w)         Energy consumption i RT
+  58  Pmax_eq(t,i,w)                  Pmax
+  59  SOC_eq(t,i,w)           State of charge time plus 1
+  60  SOC_Tdep(t,i,w)         SOC at departure
+  61  SOC_Tarr(t,i,w)         SOC at arrival
+  62  R_up(t,w)               Regulation up max
+  63  R_d(t,w)                Regulation down max
+  64  Full_eq(t,i,w)                  Battery full
+  65  *Regu(t,w)                              Regulation DA up boundary
+  66  *Regd(t,w)                              Regulation DA down boundary
+  67  ;
+  68   
+  69  Obj .. R - A - B =e= Profit;
+  70   
+  71  Aeq .. A =e= 1/1000 * sum(t,LambdaDA(t) * E_DA(t));
+  72  Beq .. B =e= 1/1000 * sum(w, Pi(w) * sum(t,LambdaRT(t,w) * Delta_E(t,w)));
+  73  Req .. R =e= 1/1000 * sum(t,LambdaR(t) * R_DA(t));
+  74   
+  75  Edev_eq(t,w) .. Delta_E(t,w) =e= E_RT(t,w) - E_DA(t);
+  76  E_RT_eq(t,w) .. E_RT(t,w) =e= sum(i, E_RTi(t,i,w));
+  77  E_RTi_eq(t,i,w) .. E_RTi(t,i,w) =l= (Pmax(t,i,w) + Pmax (t+1,i,w))/2;
+  78  Pmax_eq(t,i,w) .. Pmax(t,i,w) =l= u(t,i,w) * P_ch(i);
+  79   
+  80  * and ord(t) le T_dep(i,w)
+  81  SOC_eq(t,i,w)$(ord(t) gt T_arr(i,w)) ..
+  82  SOC(t,i,w) =e= SOC(t-1,i,w) + (Eff_ch * E_RTi(t-1,i,w)/Ebat_max(i));
+  83   
+  84  SOC_Tdep(t,i,w)$(ord(t) ge T_dep(i,w)) .. SOC(t,i,w) =e= SOC_dep(i,w);
+  85  SOC_Tarr(t,i,w)$(ord(t) eq T_arr(i,w)) .. SOC(t,i,w) =e= SOC_arr(i,w);
+  86   
+  87  R_up(t,w) .. R_DA(t) =l= E_RT(t,w);
+  88  R_d(t,w) .. R_DA(t) =l= sum(i, u(t,i,w) * P_ch(i)) - E_RT(t,w);
+  89  Full_eq(t,i,w) .. Full(t,i,w) =e= 1$(SOC.l(t,i,w) ge 0.9);
+  90  *Regu(t,w) .. R_DA(t) =l= Rup(t);
+  91  *Regd(t,w) .. R_DA(t) =l= Rdw(t);
+  92   
+  93  E_RTi.lo(t,i,w) = 0;
+  94  *E_RTi.up(t,i,w) = u(t,i,w) * P_ch(i);
+  95  E_DA.lo(t) = 0;
+  96  E_DA.up(t) = sum(i, P_ch(i));
+  97  SOC.lo(t,i,w) = min_ch;
+  98  SOC.up(t,i,w) = 1;
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 16:09:42 Page 3
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+C o m p i l a t i o n
+
+
+  99   
+ 100  Model
+ 101  Maxprofit /all/
+ 102  ;
+ 103   
+ 104  Solve
+ 105  Maxprofit using MIP maximizing Profit
+ 106  ;
+ 107   
+ 108  Display
+ 109  profit.l, A.l, B.l, R.l, E_DA.l, Delta_E.l, R_DA.l, E_RTi.l, E_RT.l, SOC.l, Full.l
+ 110  ;
+ 111   
+ 112  file output;
+ 113  R_DA.l(t)$(Not R_DA.l(t)) = EPS;
+ 114  E_DA.l(t)$(Not E_DA.l(t)) = EPS;
+ 115  Delta_E.l(t,w)$(Not Delta_E.l(t,w)) = EPS;
+ 116  E_RT.l(t,w)$(Not E_RT.l(t,w)) = EPS;
+ 117  E_RTi.l(t,i,w)$(Not E_RTi.l(t,i,w)) = EPS;
+ 118  SOC.l(t,i,w)$(Not SOC.l(t,i,w)) = EPS;
+ 119   
+ 120  Execute_unload
+ 121   '/Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob/Vagro.gdx'
+ 122  ;
+ 123   
+ 124   
+ 125   
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 16:09:42 Page 4
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Include File Summary
+
+
+   SEQ   GLOBAL TYPE      PARENT   LOCAL  FILENAME
+
+     1        1 INPUT          0       0  /Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob/Vagro_3S_wgdx.gms
+     2       29 GDXIN          1      29  /Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob/Vagro_3S.gdx
+
+
+COMPILATION TIME     =        0.005 SECONDS      3 MB  24.8.5 r61358 DEX-DEG
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 16:09:42 Page 5
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Equation Listing    SOLVE Maxprofit Using MIP From line 106
+
+
+---- Obj  =E=  Objective function
+
+Obj..  - Profit - A - B + R =E= 0 ; (LHS = 0)
+     
+
+---- Aeq  =E=  Obj1 DA Cost
+
+Aeq..  - 0.354*E_DA(t1) - 0.358*E_DA(t2) - 0.344*E_DA(t3) - 0.298*E_DA(t4) - 0.282*E_DA(t5) - 0.282*E_DA(t6) - 0.254*E_DA(t7) - 0.235*E_DA(t8) - 0.227*E_DA(t9) - 0.225*E_DA(t10) - 0.227*E_DA(t11) - 0.227*E_DA(t12) - 0.234*E_DA(t13) - 0.327*E_DA(t14)
+     
+      - 0.393*E_DA(t15) - 0.426*E_DA(t16) + A =E= 0 ; (LHS = 0)
+     
+
+---- Beq  =E=  Obj2 RT Cost
+
+Beq..  - 0.1665*Delta_E(t1,w1) - 0.1059*Delta_E(t1,w2) - 0.0541212*Delta_E(t1,w3) - 0.15*Delta_E(t2,w1) - 0.111*Delta_E(t2,w2) - 0.0559776*Delta_E(t2,w3) - 0.175*Delta_E(t3,w1) - 0.096*Delta_E(t3,w2) - 0.060996*Delta_E(t3,w3) - 0.1815*Delta_E(t4,w1)
+     
+      - 0.084*Delta_E(t4,w2) - 0.0625056*Delta_E(t4,w3) - 0.1685*Delta_E(t5,w1) - 0.1101*Delta_E(t5,w2) - 0.0609756*Delta_E(t5,w3) - 0.166*Delta_E(t6,w1) - 0.093*Delta_E(t6,w2) - 0.0595068*Delta_E(t6,w3) - 0.136*Delta_E(t7,w1) - 0.0756*Delta_E(t7,w2)
+     
+      - 0.0583848*Delta_E(t7,w3) - 0.112*Delta_E(t8,w1) - 0.0732*Delta_E(t8,w2) - 0.0609144*Delta_E(t8,w3) - 0.119*Delta_E(t9,w1) - 0.0804*Delta_E(t9,w2) - 0.0568752*Delta_E(t9,w3) - 0.096*Delta_E(t10,w1) - 0.066*Delta_E(t10,w2)
+     
+      - 0.0568344*Delta_E(t10,w3) - 0.096*Delta_E(t11,w1) - 0.0696*Delta_E(t11,w2) - 0.0453084*Delta_E(t11,w3) - 0.1*Delta_E(t12,w1) - 0.075*Delta_E(t12,w2) - 0.04488*Delta_E(t12,w3) - 0.1445*Delta_E(t13,w1) - 0.06*Delta_E(t13,w2)
+     
+      - 0.0449412*Delta_E(t13,w3) - 0.15*Delta_E(t14,w1) - 0.078*Delta_E(t14,w2) - 0.044574*Delta_E(t14,w3) - 0.187*Delta_E(t15,w1) - 0.09*Delta_E(t15,w2) - 0.0452676*Delta_E(t15,w3) - 0.1895*Delta_E(t16,w1) - 0.102*Delta_E(t16,w2)
+     
+      - 0.053448*Delta_E(t16,w3) + B =E= 0 ; (LHS = 0)
+     
+
+---- Req  =E=  Obj3 Reg. Return
+
+Req..  - 0.184*R_DA(t1) - 0.184*R_DA(t2) - 0.181*R_DA(t3) - 0.218*R_DA(t4) - 0.247*R_DA(t5) - 0.296*R_DA(t6) - 0.623*R_DA(t7) - 0.615274*R_DA(t8) - 0.617564*R_DA(t9) - 0.620072*R_DA(t10) - 0.617634*R_DA(t11) - 0.621569*R_DA(t12) - 0.58474*R_DA(t13)
+     
+      - 0.575481*R_DA(t14) - 0.314487*R_DA(t15) - 0.17754*R_DA(t16) + R =E= 0 ; (LHS = 0)
+     
+
+---- Edev_eq  =E=  Energy Deviation between RT & DA
+
+Edev_eq(t1,w1)..  E_DA(t1) - E_RT(t1,w1) + Delta_E(t1,w1) =E= 0 ; (LHS = 0)
+     
+Edev_eq(t1,w2)..  E_DA(t1) - E_RT(t1,w2) + Delta_E(t1,w2) =E= 0 ; (LHS = 0)
+     
+Edev_eq(t1,w3)..  E_DA(t1) - E_RT(t1,w3) + Delta_E(t1,w3) =E= 0 ; (LHS = 0)
+     
+REMAINING 45 ENTRIES SKIPPED
+
+
+---- E_RT_eq  =E=  Energy consumption RT
+
+E_RT_eq(t1,w1)..  E_RT(t1,w1) - E_RTi(t1,i1,w1) - E_RTi(t1,i2,w1) - E_RTi(t1,i3,w1) =E= 0 ; (LHS = 0)
+     
+E_RT_eq(t1,w2)..  E_RT(t1,w2) - E_RTi(t1,i1,w2) - E_RTi(t1,i2,w2) - E_RTi(t1,i3,w2) =E= 0 ; (LHS = 0)
+     
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 16:09:42 Page 6
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Equation Listing    SOLVE Maxprofit Using MIP From line 106
+
+
+     E_RT_eq  =E=  Energy consumption RT
+
+E_RT_eq(t1,w3)..  E_RT(t1,w3) - E_RTi(t1,i1,w3) - E_RTi(t1,i2,w3) - E_RTi(t1,i3,w3) =E= 0 ; (LHS = 0)
+     
+REMAINING 45 ENTRIES SKIPPED
+
+
+---- E_RTi_eq  =L=  Energy consumption i RT
+
+E_RTi_eq(t1,i1,w1)..  E_RTi(t1,i1,w1) - 0.5*Pmax(t1,i1,w1) - 0.5*Pmax(t2,i1,w1) =L= 0 ; (LHS = 0)
+     
+E_RTi_eq(t1,i1,w2)..  E_RTi(t1,i1,w2) - 0.5*Pmax(t1,i1,w2) - 0.5*Pmax(t2,i1,w2) =L= 0 ; (LHS = 0)
+     
+E_RTi_eq(t1,i1,w3)..  E_RTi(t1,i1,w3) - 0.5*Pmax(t1,i1,w3) - 0.5*Pmax(t2,i1,w3) =L= 0 ; (LHS = 0)
+     
+REMAINING 141 ENTRIES SKIPPED
+
+
+---- Pmax_eq  =L=  Pmax
+
+Pmax_eq(t1,i1,w1)..  Pmax(t1,i1,w1) =L= 6 ; (LHS = 0)
+     
+Pmax_eq(t1,i1,w2)..  Pmax(t1,i1,w2) =L= 0 ; (LHS = 0)
+     
+Pmax_eq(t1,i1,w3)..  Pmax(t1,i1,w3) =L= 6 ; (LHS = 0)
+     
+REMAINING 141 ENTRIES SKIPPED
+
+
+---- SOC_eq  =E=  State of charge time plus 1
+
+SOC_eq(t2,i1,w1)..  - SOC(t1,i1,w1) + SOC(t2,i1,w1) - 0.009*E_RTi(t1,i1,w1) =E= 0 ; (LHS = 0)
+     
+SOC_eq(t2,i1,w3)..  - SOC(t1,i1,w3) + SOC(t2,i1,w3) - 0.009*E_RTi(t1,i1,w3) =E= 0 ; (LHS = 0)
+     
+SOC_eq(t3,i1,w1)..  - SOC(t2,i1,w1) + SOC(t3,i1,w1) - 0.009*E_RTi(t2,i1,w1) =E= 0 ; (LHS = 0)
+     
+REMAINING 119 ENTRIES SKIPPED
+
+
+---- SOC_Tdep  =E=  SOC at departure
+
+SOC_Tdep(t11,i1,w2)..  SOC(t11,i1,w2) =E= 0.9 ; (LHS = 0, INFES = 0.9 ****)
+     
+SOC_Tdep(t12,i1,w2)..  SOC(t12,i1,w2) =E= 0.9 ; (LHS = 0, INFES = 0.9 ****)
+     
+SOC_Tdep(t13,i1,w2)..  SOC(t13,i1,w2) =E= 0.9 ; (LHS = 0, INFES = 0.9 ****)
+     
+REMAINING 23 ENTRIES SKIPPED
+
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 16:09:42 Page 7
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Equation Listing    SOLVE Maxprofit Using MIP From line 106
+
+
+---- SOC_Tarr  =E=  SOC at arrival
+
+SOC_Tarr(t1,i1,w1)..  SOC(t1,i1,w1) =E= 0.64 ; (LHS = 0, INFES = 0.64 ****)
+     
+SOC_Tarr(t1,i1,w3)..  SOC(t1,i1,w3) =E= 0.6 ; (LHS = 0, INFES = 0.6 ****)
+     
+SOC_Tarr(t2,i2,w2)..  SOC(t2,i2,w2) =E= 0.7 ; (LHS = 0, INFES = 0.7 ****)
+     
+REMAINING 6 ENTRIES SKIPPED
+
+
+---- R_up  =L=  Regulation up max
+
+R_up(t1,w1)..  R_DA(t1) - E_RT(t1,w1) =L= 0 ; (LHS = 0)
+     
+R_up(t1,w2)..  R_DA(t1) - E_RT(t1,w2) =L= 0 ; (LHS = 0)
+     
+R_up(t1,w3)..  R_DA(t1) - E_RT(t1,w3) =L= 0 ; (LHS = 0)
+     
+REMAINING 45 ENTRIES SKIPPED
+
+
+---- R_d  =L=  Regulation down max
+
+R_d(t1,w1)..  R_DA(t1) + E_RT(t1,w1) =L= 6 ; (LHS = 0)
+     
+R_d(t1,w2)..  R_DA(t1) + E_RT(t1,w2) =L= 0 ; (LHS = 0)
+     
+R_d(t1,w3)..  R_DA(t1) + E_RT(t1,w3) =L= 6 ; (LHS = 0)
+     
+REMAINING 45 ENTRIES SKIPPED
+
+
+---- Full_eq  =E=  Battery full
+
+Full_eq(t1,i1,w1)..  Full(t1,i1,w1) =E= 0 ; (LHS = 0)
+     
+Full_eq(t1,i1,w2)..  Full(t1,i1,w2) =E= 0 ; (LHS = 0)
+     
+Full_eq(t1,i1,w3)..  Full(t1,i1,w3) =E= 0 ; (LHS = 0)
+     
+REMAINING 141 ENTRIES SKIPPED
+
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 16:09:42 Page 8
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Column Listing      SOLVE Maxprofit Using MIP From line 106
+
+
+---- SOC  SOC
+
+SOC(t1,i1,w1)
+                (.LO, .L, .UP, .M = 0, 0, 1, 0)
+       -1       SOC_eq(t2,i1,w1)
+        1       SOC_Tarr(t1,i1,w1)
+
+SOC(t1,i1,w3)
+                (.LO, .L, .UP, .M = 0, 0, 1, 0)
+       -1       SOC_eq(t2,i1,w3)
+        1       SOC_Tarr(t1,i1,w3)
+
+SOC(t2,i1,w1)
+                (.LO, .L, .UP, .M = 0, 0, 1, 0)
+        1       SOC_eq(t2,i1,w1)
+       -1       SOC_eq(t3,i1,w1)
+
+REMAINING 128 ENTRIES SKIPPED
+
+---- E_DA  Energy bid day ahead
+
+E_DA(t1)
+                (.LO, .L, .UP, .M = 0, 0, 18, 0)
+       -0.354   Aeq
+        1       Edev_eq(t1,w1)
+        1       Edev_eq(t1,w2)
+        1       Edev_eq(t1,w3)
+
+E_DA(t2)
+                (.LO, .L, .UP, .M = 0, 0, 18, 0)
+       -0.358   Aeq
+        1       Edev_eq(t2,w1)
+        1       Edev_eq(t2,w2)
+        1       Edev_eq(t2,w3)
+
+E_DA(t3)
+                (.LO, .L, .UP, .M = 0, 0, 18, 0)
+       -0.344   Aeq
+        1       Edev_eq(t3,w1)
+        1       Edev_eq(t3,w2)
+        1       Edev_eq(t3,w3)
+
+REMAINING 13 ENTRIES SKIPPED
+
+---- R_DA  Regulation bid day ahead
+
+R_DA(t1)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -0.184   Req
+        1       R_up(t1,w1)
+        1       R_up(t1,w2)
+        1       R_up(t1,w3)
+        1       R_d(t1,w1)
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                   04/04/18 16:09:42 Page 9
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Column Listing      SOLVE Maxprofit Using MIP From line 106
+
+
+     R_DA  Regulation bid day ahead
+
+        1       R_d(t1,w2)
+        1       R_d(t1,w3)
+
+R_DA(t2)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -0.184   Req
+        1       R_up(t2,w1)
+        1       R_up(t2,w2)
+        1       R_up(t2,w3)
+        1       R_d(t2,w1)
+        1       R_d(t2,w2)
+        1       R_d(t2,w3)
+
+R_DA(t3)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -0.181   Req
+        1       R_up(t3,w1)
+        1       R_up(t3,w2)
+        1       R_up(t3,w3)
+        1       R_d(t3,w1)
+        1       R_d(t3,w2)
+        1       R_d(t3,w3)
+
+REMAINING 13 ENTRIES SKIPPED
+
+---- E_RT  Energy consumption RT Total
+
+E_RT(t1,w1)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -1       Edev_eq(t1,w1)
+        1       E_RT_eq(t1,w1)
+       -1       R_up(t1,w1)
+        1       R_d(t1,w1)
+
+E_RT(t1,w2)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -1       Edev_eq(t1,w2)
+        1       E_RT_eq(t1,w2)
+       -1       R_up(t1,w2)
+        1       R_d(t1,w2)
+
+E_RT(t1,w3)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -1       Edev_eq(t1,w3)
+        1       E_RT_eq(t1,w3)
+       -1       R_up(t1,w3)
+        1       R_d(t1,w3)
+
+REMAINING 45 ENTRIES SKIPPED
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 10
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Column Listing      SOLVE Maxprofit Using MIP From line 106
+
+
+---- E_RTi  Energy consumption RT of ith vehicle
+
+E_RTi(t1,i1,w1)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+       -1       E_RT_eq(t1,w1)
+        1       E_RTi_eq(t1,i1,w1)
+       -0.009   SOC_eq(t2,i1,w1)
+
+E_RTi(t1,i1,w2)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+       -1       E_RT_eq(t1,w2)
+        1       E_RTi_eq(t1,i1,w2)
+
+E_RTi(t1,i1,w3)
+                (.LO, .L, .UP, .M = 0, 0, +INF, 0)
+       -1       E_RT_eq(t1,w3)
+        1       E_RTi_eq(t1,i1,w3)
+       -0.009   SOC_eq(t2,i1,w3)
+
+REMAINING 141 ENTRIES SKIPPED
+
+---- Pmax  Max RT Power consumption of ith vehicle
+
+Pmax(t1,i1,w1)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -0.5     E_RTi_eq(t1,i1,w1)
+        1       Pmax_eq(t1,i1,w1)
+
+Pmax(t1,i1,w2)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -0.5     E_RTi_eq(t1,i1,w2)
+        1       Pmax_eq(t1,i1,w2)
+
+Pmax(t1,i1,w3)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -0.5     E_RTi_eq(t1,i1,w3)
+        1       Pmax_eq(t1,i1,w3)
+
+REMAINING 141 ENTRIES SKIPPED
+
+---- Delta_E  Energy difference RT & DA
+
+Delta_E(t1,w1)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -0.1665  Beq
+        1       Edev_eq(t1,w1)
+
+Delta_E(t1,w2)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -0.1059  Beq
+        1       Edev_eq(t1,w2)
+
+Delta_E(t1,w3)
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 11
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Column Listing      SOLVE Maxprofit Using MIP From line 106
+
+
+     Delta_E  Energy difference RT & DA
+
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -0.0541  Beq
+        1       Edev_eq(t1,w3)
+
+REMAINING 45 ENTRIES SKIPPED
+
+---- Profit  Aggregator Profit
+
+Profit
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -1       Obj
+
+
+---- A  DA cost
+
+A
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -1       Obj
+        1       Aeq
+
+
+---- B  RT Cost
+
+B
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+       -1       Obj
+        1       Beq
+
+
+---- R  Regulation Return
+
+R
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+        1       Obj
+        1       Req
+
+
+---- Full  Fully charged
+
+Full(t1,i1,w1)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+        1       Full_eq(t1,i1,w1)
+
+Full(t1,i1,w2)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+        1       Full_eq(t1,i1,w2)
+
+Full(t1,i1,w3)
+                (.LO, .L, .UP, .M = -INF, 0, +INF, 0)
+        1       Full_eq(t1,i1,w3)
+
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 12
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Column Listing      SOLVE Maxprofit Using MIP From line 106
+
+
+     Full  Fully charged
+
+REMAINING 141 ENTRIES SKIPPED
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 13
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Model Statistics    SOLVE Maxprofit Using MIP From line 106
+
+
+MODEL STATISTICS
+
+BLOCKS OF EQUATIONS          14     SINGLE EQUATIONS          785
+BLOCKS OF VARIABLES          12     SINGLE VARIABLES          695
+NON ZERO ELEMENTS         1,727
+
+
+GENERATION TIME      =        0.018 SECONDS      4 MB  24.8.5 r61358 DEX-DEG
+
+
+EXECUTION TIME       =        0.019 SECONDS      4 MB  24.8.5 r61358 DEX-DEG
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 14
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+               S O L V E      S U M M A R Y
+
+     MODEL   Maxprofit           OBJECTIVE  Profit
+     TYPE    MIP                 DIRECTION  MAXIMIZE
+     SOLVER  CPLEX               FROM LINE  106
+
+**** SOLVER STATUS     1 Normal Completion         
+**** MODEL STATUS      1 Optimal                   
+**** OBJECTIVE VALUE               22.9876
+
+ RESOURCE USAGE, LIMIT          0.048      1000.000
+ ITERATION COUNT, LIMIT        90    2000000000
+
+IBM ILOG CPLEX   24.8.5 r61358 Released May 10, 2017 DEG x86 64bit/Mac OS X   
+--- GAMS/Cplex Link licensed for continuous and discrete problems.
+Cplex 12.7.1.0
+
+Space for names approximately 0.03 Mb
+Use option 'names no' to turn use of names off
+LP status(1): optimal
+Cplex Time: 0.02sec (det. 1.04 ticks)
+Optimal solution found.
+Objective :          22.987612
+
+
+                           LOWER          LEVEL          UPPER         MARGINAL
+
+---- EQU Obj                 .              .              .            -1.0000      
+---- EQU Aeq                 .              .              .            -1.0000      
+---- EQU Beq                 .              .              .            -1.0000      
+---- EQU Req                 .              .              .             1.0000      
+
+  Obj  Objective function
+  Aeq  Obj1 DA Cost
+  Beq  Obj2 RT Cost
+  Req  Obj3 Reg. Return
+
+---- EQU Edev_eq  Energy Deviation between RT & DA
+
+              LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .w1          .              .              .            -0.1665      
+t1 .w2          .              .              .            -0.1059      
+t1 .w3          .              .              .            -0.0541      
+t2 .w1          .              .              .            -0.1500      
+t2 .w2          .              .              .            -0.1110      
+t2 .w3          .              .              .            -0.0560      
+t3 .w1          .              .              .            -0.1750      
+t3 .w2          .              .              .            -0.0960      
+t3 .w3          .              .              .            -0.0610      
+t4 .w1          .              .              .            -0.1815      
+t4 .w2          .              .              .            -0.0840      
+t4 .w3          .              .              .            -0.0625      
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 15
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU Edev_eq  Energy Deviation between RT & DA
+
+              LOWER          LEVEL          UPPER         MARGINAL
+
+t5 .w1          .              .              .            -0.1685      
+t5 .w2          .              .              .            -0.1101      
+t5 .w3          .              .              .            -0.0610      
+t6 .w1          .              .              .            -0.1660      
+t6 .w2          .              .              .            -0.0930      
+t6 .w3          .              .              .            -0.0595      
+t7 .w1          .              .              .            -0.1360      
+t7 .w2          .              .              .            -0.0756      
+t7 .w3          .              .              .            -0.0584      
+t8 .w1          .              .              .            -0.1120      
+t8 .w2          .              .              .            -0.0732      
+t8 .w3          .              .              .            -0.0609      
+t9 .w1          .              .              .            -0.1190      
+t9 .w2          .              .              .            -0.0804      
+t9 .w3          .              .              .            -0.0569      
+t10.w1          .              .              .            -0.0960      
+t10.w2          .              .              .            -0.0660      
+t10.w3          .              .              .            -0.0568      
+t11.w1          .              .              .            -0.0960      
+t11.w2          .              .              .            -0.0696      
+t11.w3          .              .              .            -0.0453      
+t12.w1          .              .              .            -0.1000      
+t12.w2          .              .              .            -0.0750      
+t12.w3          .              .              .            -0.0449      
+t13.w1          .              .              .            -0.1445      
+t13.w2          .              .              .            -0.0600      
+t13.w3          .              .              .            -0.0449      
+t14.w1          .              .              .            -0.1500      
+t14.w2          .              .              .            -0.0780      
+t14.w3          .              .              .            -0.0446      
+t15.w1          .              .              .            -0.1870      
+t15.w2          .              .              .            -0.0900      
+t15.w3          .              .              .            -0.0453      
+t16.w1          .              .              .            -0.1895      
+t16.w2          .              .              .            -0.1020      
+t16.w3          .              .              .            -0.0534      
+
+---- EQU E_RT_eq  Energy consumption RT
+
+              LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .w1          .              .              .             EPS         
+t1 .w2          .              .              .            -0.0884      
+t1 .w3          .              .              .            -0.0541      
+t2 .w1          .              .              .             EPS         
+t2 .w2          .              .              .            -0.0770      
+t2 .w3          .              .              .            -0.0560      
+t3 .w1          .              .              .             0.0060      
+t3 .w2          .              .              .            -0.0960      
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 16
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU E_RT_eq  Energy consumption RT
+
+              LOWER          LEVEL          UPPER         MARGINAL
+
+t3 .w3          .              .              .            -0.0610      
+t4 .w1          .              .              .             0.0300      
+t4 .w2          .              .              .            -0.0840      
+t4 .w3          .              .              .            -0.0560      
+t5 .w1          .              .              .             0.0735      
+t5 .w2          .              .              .            -0.1101      
+t5 .w3          .              .              .            -0.0560      
+t6 .w1          .              .              .             0.0735      
+t6 .w2          .              .              .            -0.1101      
+t6 .w3          .              .              .            -0.0560      
+t7 .w1          .              .              .             0.0735      
+t7 .w2          .              .              .            -0.1101      
+t7 .w3          .              .              .            -0.0560      
+t8 .w1          .              .              .             0.0735      
+t8 .w2          .              .              .            -0.1101      
+t8 .w3          .              .              .            -0.0560      
+t9 .w1          .              .              .             0.0735      
+t9 .w2          .              .              .            -0.1101      
+t9 .w3          .              .              .            -0.0560      
+t10.w1          .              .              .             0.0735      
+t10.w2          .              .              .            -0.1101      
+t10.w3          .              .              .            -0.0560      
+t11.w1          .              .              .             0.0735      
+t11.w2          .              .              .            -0.0750      
+t11.w3          .              .              .            -0.0560      
+t12.w1          .              .              .             0.0735      
+t12.w2          .              .              .            -0.0750      
+t12.w3          .              .              .            -0.0560      
+t13.w1          .              .              .             0.0735      
+t13.w2          .              .              .            -0.0600      
+t13.w3          .              .              .            -0.0449      
+t14.w1          .              .              .             0.0735      
+t14.w2          .              .              .            -0.0750      
+t14.w3          .              .              .            -0.0560      
+t15.w1          .              .              .            -0.1870      
+t15.w2          .              .              .             0.2245      
+t15.w3          .              .              .            -0.0453      
+t16.w1          .              .              .            -0.1895      
+t16.w2          .              .              .             0.0755      
+t16.w3          .              .              .            -0.0534      
+
+---- EQU E_RTi_eq  Energy consumption i RT
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .i1.w1        -INF           -6.0000          .              .          
+t1 .i1.w2        -INF             .              .              .          
+t1 .i1.w3        -INF             .              .             0.0019      
+t1 .i2.w1        -INF             .              .              .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 17
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU E_RTi_eq  Energy consumption i RT
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .i2.w2        -INF           -3.0000          .              .          
+t1 .i2.w3        -INF             .              .              .          
+t1 .i3.w1        -INF           -3.0000          .              .          
+t1 .i3.w2        -INF             .              .              .          
+t1 .i3.w3        -INF           -3.0000          .              .          
+t2 .i1.w1        -INF           -6.0000          .              .          
+t2 .i1.w2        -INF             .              .              .          
+t2 .i1.w3        -INF           -6.0000          .              .          
+t2 .i2.w1        -INF           -3.0000          .              .          
+t2 .i2.w2        -INF           -6.0000          .              .          
+t2 .i2.w3        -INF           -3.0000          .              .          
+t2 .i3.w1        -INF           -6.0000          .              .          
+t2 .i3.w2        -INF             .              .              .          
+t2 .i3.w3        -INF           -3.3333          .              .          
+t3 .i1.w1        -INF           -6.0000          .              .          
+t3 .i1.w2        -INF           -3.0000          .              .          
+t3 .i1.w3        -INF           -6.0000          .              .          
+t3 .i2.w1        -INF           -6.0000          .              .          
+t3 .i2.w2        -INF           -6.0000          .              .          
+t3 .i2.w3        -INF           -6.0000          .              .          
+t3 .i3.w1        -INF           -6.0000          .              .          
+t3 .i3.w2        -INF           -3.0000          .              .          
+t3 .i3.w3        -INF           -6.0000          .              .          
+t4 .i1.w1        -INF           -6.0000          .              .          
+t4 .i1.w2        -INF             .              .             0.0261      
+t4 .i1.w3        -INF           -6.0000          .              .          
+t4 .i2.w1        -INF           -6.0000          .              .          
+t4 .i2.w2        -INF           -6.0000          .              .          
+t4 .i2.w3        -INF           -6.0000          .              .          
+t4 .i3.w1        -INF           -6.0000          .              .          
+t4 .i3.w2        -INF             .              .             0.0261      
+t4 .i3.w3        -INF           -6.0000          .              .          
+t5 .i1.w1        -INF             .              .             EPS         
+t5 .i1.w2        -INF             .              .             EPS         
+t5 .i1.w3        -INF             .              .             EPS         
+t5 .i2.w1        -INF           -6.0000          .              .          
+t5 .i2.w2        -INF           -6.0000          .              .          
+t5 .i2.w3        -INF           -4.5556          .              .          
+t5 .i3.w1        -INF           -4.5556          .              .          
+t5 .i3.w2        -INF           -3.2222          .              .          
+t5 .i3.w3        -INF           -6.0000          .              .          
+t6 .i1.w1        -INF             .              .             EPS         
+t6 .i1.w2        -INF           -3.0000          .              .          
+t6 .i1.w3        -INF           -5.6667          .              .          
+t6 .i2.w1        -INF           -6.0000          .              .          
+t6 .i2.w2        -INF           -6.0000          .              .          
+t6 .i2.w3        -INF           -3.3333          .              .          
+t6 .i3.w1        -INF           -3.0000          .              .          
+t6 .i3.w2        -INF             .              .             EPS         
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 18
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU E_RTi_eq  Energy consumption i RT
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t6 .i3.w3        -INF             .              .             EPS         
+t7 .i1.w1        -INF           -3.0000          .              .          
+t7 .i1.w2        -INF           -2.6667          .              .          
+t7 .i1.w3        -INF             .              .             EPS         
+t7 .i2.w1        -INF             .              .             EPS         
+t7 .i2.w2        -INF           -6.0000          .              .          
+t7 .i2.w3        -INF           -6.0000          .              .          
+t7 .i3.w1        -INF           -6.0000          .              .          
+t7 .i3.w2        -INF           -0.3333          .              .          
+t7 .i3.w3        -INF           -3.0000          .              .          
+t8 .i1.w1        -INF             .              .             EPS         
+t8 .i1.w2        -INF             .              .             EPS         
+t8 .i1.w3        -INF             .              .             EPS         
+t8 .i2.w1        -INF           -6.0000          .              .          
+t8 .i2.w2        -INF           -6.0000          .              .          
+t8 .i2.w3        -INF           -5.7778          .              .          
+t8 .i3.w1        -INF           -3.0000          .              .          
+t8 .i3.w2        -INF           -3.0000          .              .          
+t8 .i3.w3        -INF           -3.2222          .              .          
+t9 .i1.w1        -INF           -6.0000          .              .          
+t9 .i1.w2        -INF           -3.0000          .              .          
+t9 .i1.w3        -INF             .              .             EPS         
+t9 .i2.w1        -INF           -3.0000          .              .          
+t9 .i2.w2        -INF           -6.0000          .              .          
+t9 .i2.w3        -INF           -6.0000          .              .          
+t9 .i3.w1        -INF             .              .             EPS         
+t9 .i3.w2        -INF             .              .             EPS         
+t9 .i3.w3        -INF           -3.0000          .              .          
+t10.i1.w1        -INF           -1.1111          .              .          
+t10.i1.w2        -INF             .              .             EPS         
+t10.i1.w3        -INF           -3.0000          .              .          
+t10.i2.w1        -INF           -1.8889          .              .          
+t10.i2.w2        -INF           -6.0000          .              .          
+t10.i2.w3        -INF           -6.0000          .              .          
+t10.i3.w1        -INF           -6.0000          .              .          
+t10.i3.w2        -INF           -3.0000          .              .          
+t10.i3.w3        -INF             .              .             EPS         
+t11.i1.w1        -INF             .              .             EPS         
+t11.i1.w2        -INF           -6.0000          .              .          
+t11.i1.w3        -INF           -3.0000          .              .          
+t11.i2.w1        -INF           -6.0000          .              .          
+t11.i2.w2        -INF           -3.0000          .              .          
+t11.i2.w3        -INF           -3.0000          .              .          
+t11.i3.w1        -INF             .              .              .          
+t11.i3.w2        -INF             .              .             0.0351      
+t11.i3.w3        -INF             .              .             EPS         
+t12.i1.w1        -INF             .              .              .          
+t12.i1.w2        -INF           -6.0000          .              .          
+t12.i1.w3        -INF             .              .              .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 19
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU E_RTi_eq  Energy consumption i RT
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t12.i2.w1        -INF           -3.7778          .              .          
+t12.i2.w2        -INF           -4.6667          .              .          
+t12.i2.w3        -INF             .              .             EPS         
+t12.i3.w1        -INF           -2.2222          .              .          
+t12.i3.w2        -INF             .              .             0.0351      
+t12.i3.w3        -INF           -6.0000          .              .          
+t13.i1.w1        -INF             .              .             EPS         
+t13.i1.w2        -INF           -6.0000          .              .          
+t13.i1.w3        -INF             .              .             0.0110      
+t13.i2.w1        -INF           -3.0000          .              .          
+t13.i2.w2        -INF             .              .             0.0150      
+t13.i2.w3        -INF           -3.0000          .              .          
+t13.i3.w1        -INF             .              .              .          
+t13.i3.w2        -INF           -3.0000          .              .          
+t13.i3.w3        -INF             .              .             0.0110      
+t14.i1.w1        -INF             .              .              .          
+t14.i1.w2        -INF           -6.0000          .              .          
+t14.i1.w3        -INF             .              .              .          
+t14.i2.w1        -INF             .              .             0.0735      
+t14.i2.w2        -INF           -3.0000          .              .          
+t14.i2.w3        -INF             .              .              .          
+t14.i3.w1        -INF           -3.0000          .              .          
+t14.i3.w2        -INF             .              .              .          
+t14.i3.w3        -INF           -3.0000          .              .          
+t15.i1.w1        -INF             .              .              .          
+t15.i1.w2        -INF           -3.0000          .              .          
+t15.i1.w3        -INF             .              .              .          
+t15.i2.w1        -INF             .              .              .          
+t15.i2.w2        -INF           -3.0000          .              .          
+t15.i2.w3        -INF             .              .              .          
+t15.i3.w1        -INF           -6.0000          .              .          
+t15.i3.w2        -INF             .              .             0.2245      
+t15.i3.w3        -INF             .              .             0.0107      
+t16.i1.w1        -INF             .              .              .          
+t16.i1.w2        -INF             .              .             0.0755      
+t16.i1.w3        -INF             .              .              .          
+t16.i2.w1        -INF             .              .              .          
+t16.i2.w2        -INF             .              .             0.0755      
+t16.i2.w3        -INF             .              .              .          
+t16.i3.w1        -INF           -3.0000          .              .          
+t16.i3.w2        -INF             .              .             0.0755      
+t16.i3.w3        -INF           -3.0000          .              .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 20
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+---- EQU Pmax_eq  Pmax
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .i1.w1        -INF            6.0000         6.0000         EPS         
+t1 .i1.w2        -INF             .              .             EPS         
+t1 .i1.w3        -INF            6.0000         6.0000         0.0009      
+t1 .i2.w1        -INF             .              .             EPS         
+t1 .i2.w2        -INF             .              .             EPS         
+t1 .i2.w3        -INF             .              .             EPS         
+t1 .i3.w1        -INF             .              .             EPS         
+t1 .i3.w2        -INF             .              .             EPS         
+t1 .i3.w3        -INF             .              .             EPS         
+t2 .i1.w1        -INF            6.0000         6.0000         EPS         
+t2 .i1.w2        -INF             .              .             EPS         
+t2 .i1.w3        -INF            6.0000         6.0000         0.0009      
+t2 .i2.w1        -INF             .              .             EPS         
+t2 .i2.w2        -INF            6.0000         6.0000         EPS         
+t2 .i2.w3        -INF             .              .             EPS         
+t2 .i3.w1        -INF            6.0000         6.0000         EPS         
+t2 .i3.w2        -INF             .              .             EPS         
+t2 .i3.w3        -INF            6.0000         6.0000         EPS         
+t3 .i1.w1        -INF            6.0000         6.0000         EPS         
+t3 .i1.w2        -INF             .              .             EPS         
+t3 .i1.w3        -INF            6.0000         6.0000         EPS         
+t3 .i2.w1        -INF            6.0000         6.0000         EPS         
+t3 .i2.w2        -INF            6.0000         6.0000         EPS         
+t3 .i2.w3        -INF            6.0000         6.0000         EPS         
+t3 .i3.w1        -INF            6.0000         6.0000         EPS         
+t3 .i3.w2        -INF             .              .             EPS         
+t3 .i3.w3        -INF            6.0000         6.0000         EPS         
+t4 .i1.w1        -INF            6.0000         6.0000         EPS         
+t4 .i1.w2        -INF            6.0000         6.0000         0.0130      
+t4 .i1.w3        -INF            6.0000         6.0000         EPS         
+t4 .i2.w1        -INF            6.0000         6.0000         EPS         
+t4 .i2.w2        -INF            6.0000         6.0000         EPS         
+t4 .i2.w3        -INF            6.0000         6.0000         EPS         
+t4 .i3.w1        -INF            6.0000         6.0000         EPS         
+t4 .i3.w2        -INF            6.0000         6.0000         0.0130      
+t4 .i3.w3        -INF            6.0000         6.0000         EPS         
+t5 .i1.w1        -INF            6.0000         6.0000         EPS         
+t5 .i1.w2        -INF            6.0000         6.0000         0.0130      
+t5 .i1.w3        -INF            6.0000         6.0000         EPS         
+t5 .i2.w1        -INF            6.0000         6.0000         EPS         
+t5 .i2.w2        -INF            6.0000         6.0000         EPS         
+t5 .i2.w3        -INF            6.0000         6.0000         EPS         
+t5 .i3.w1        -INF            6.0000         6.0000         EPS         
+t5 .i3.w2        -INF            6.0000         6.0000         0.0130      
+t5 .i3.w3        -INF            6.0000         6.0000         EPS         
+t6 .i1.w1        -INF            6.0000         6.0000         EPS         
+t6 .i1.w2        -INF            6.0000         6.0000         EPS         
+t6 .i1.w3        -INF            6.0000         6.0000         EPS         
+t6 .i2.w1        -INF            6.0000         6.0000         EPS         
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 21
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU Pmax_eq  Pmax
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t6 .i2.w2        -INF            6.0000         6.0000         EPS         
+t6 .i2.w3        -INF            6.0000         6.0000         EPS         
+t6 .i3.w1        -INF            6.0000         6.0000         EPS         
+t6 .i3.w2        -INF            6.0000         6.0000         EPS         
+t6 .i3.w3        -INF            6.0000         6.0000         EPS         
+t7 .i1.w1        -INF            6.0000         6.0000         EPS         
+t7 .i1.w2        -INF            6.0000         6.0000         EPS         
+t7 .i1.w3        -INF            6.0000         6.0000         EPS         
+t7 .i2.w1        -INF            6.0000         6.0000         EPS         
+t7 .i2.w2        -INF            6.0000         6.0000         EPS         
+t7 .i2.w3        -INF            6.0000         6.0000         EPS         
+t7 .i3.w1        -INF            6.0000         6.0000         EPS         
+t7 .i3.w2        -INF            6.0000         6.0000         EPS         
+t7 .i3.w3        -INF            6.0000         6.0000         EPS         
+t8 .i1.w1        -INF            6.0000         6.0000         EPS         
+t8 .i1.w2        -INF            6.0000         6.0000         EPS         
+t8 .i1.w3        -INF            6.0000         6.0000         EPS         
+t8 .i2.w1        -INF            6.0000         6.0000         EPS         
+t8 .i2.w2        -INF            6.0000         6.0000         EPS         
+t8 .i2.w3        -INF            6.0000         6.0000         EPS         
+t8 .i3.w1        -INF            6.0000         6.0000         EPS         
+t8 .i3.w2        -INF            6.0000         6.0000         EPS         
+t8 .i3.w3        -INF            6.0000         6.0000         EPS         
+t9 .i1.w1        -INF            6.0000         6.0000         EPS         
+t9 .i1.w2        -INF            6.0000         6.0000         EPS         
+t9 .i1.w3        -INF            6.0000         6.0000         EPS         
+t9 .i2.w1        -INF            6.0000         6.0000         EPS         
+t9 .i2.w2        -INF            6.0000         6.0000         EPS         
+t9 .i2.w3        -INF            6.0000         6.0000         EPS         
+t9 .i3.w1        -INF            6.0000         6.0000         EPS         
+t9 .i3.w2        -INF            6.0000         6.0000         EPS         
+t9 .i3.w3        -INF            6.0000         6.0000         EPS         
+t10.i1.w1        -INF            6.0000         6.0000         EPS         
+t10.i1.w2        -INF            6.0000         6.0000         EPS         
+t10.i1.w3        -INF            6.0000         6.0000         EPS         
+t10.i2.w1        -INF            6.0000         6.0000         EPS         
+t10.i2.w2        -INF            6.0000         6.0000         EPS         
+t10.i2.w3        -INF            6.0000         6.0000         EPS         
+t10.i3.w1        -INF            6.0000         6.0000         EPS         
+t10.i3.w2        -INF            6.0000         6.0000         EPS         
+t10.i3.w3        -INF            6.0000         6.0000         EPS         
+t11.i1.w1        -INF            6.0000         6.0000         EPS         
+t11.i1.w2        -INF            6.0000         6.0000         EPS         
+t11.i1.w3        -INF            6.0000         6.0000         EPS         
+t11.i2.w1        -INF            6.0000         6.0000         EPS         
+t11.i2.w2        -INF            6.0000         6.0000         EPS         
+t11.i2.w3        -INF            6.0000         6.0000         EPS         
+t11.i3.w1        -INF            6.0000         6.0000         EPS         
+t11.i3.w2        -INF            6.0000         6.0000         0.0176      
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 22
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU Pmax_eq  Pmax
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t11.i3.w3        -INF            6.0000         6.0000         EPS         
+t12.i1.w1        -INF             .              .             EPS         
+t12.i1.w2        -INF            6.0000         6.0000         EPS         
+t12.i1.w3        -INF             .              .             EPS         
+t12.i2.w1        -INF            6.0000         6.0000         EPS         
+t12.i2.w2        -INF            6.0000         6.0000         EPS         
+t12.i2.w3        -INF            6.0000         6.0000         EPS         
+t12.i3.w1        -INF            6.0000         6.0000         EPS         
+t12.i3.w2        -INF            6.0000         6.0000         0.0351      
+t12.i3.w3        -INF            6.0000         6.0000         EPS         
+t13.i1.w1        -INF             .              .             EPS         
+t13.i1.w2        -INF            6.0000         6.0000         EPS         
+t13.i1.w3        -INF             .              .             0.0055      
+t13.i2.w1        -INF            6.0000         6.0000         EPS         
+t13.i2.w2        -INF            6.0000         6.0000         0.0075      
+t13.i2.w3        -INF            6.0000         6.0000         EPS         
+t13.i3.w1        -INF            6.0000         6.0000         EPS         
+t13.i3.w2        -INF            6.0000         6.0000         0.0176      
+t13.i3.w3        -INF            6.0000         6.0000         0.0055      
+t14.i1.w1        -INF             .              .             EPS         
+t14.i1.w2        -INF            6.0000         6.0000         EPS         
+t14.i1.w3        -INF             .              .             0.0055      
+t14.i2.w1        -INF             .              .             0.0368      
+t14.i2.w2        -INF            6.0000         6.0000         0.0075      
+t14.i2.w3        -INF             .              .             EPS         
+t14.i3.w1        -INF            6.0000         6.0000         EPS         
+t14.i3.w2        -INF             .              .             EPS         
+t14.i3.w3        -INF            6.0000         6.0000         0.0055      
+t15.i1.w1        -INF             .              .             EPS         
+t15.i1.w2        -INF            6.0000         6.0000         EPS         
+t15.i1.w3        -INF             .              .             EPS         
+t15.i2.w1        -INF             .              .             0.0368      
+t15.i2.w2        -INF            6.0000         6.0000         EPS         
+t15.i2.w3        -INF             .              .             EPS         
+t15.i3.w1        -INF            6.0000         6.0000         EPS         
+t15.i3.w2        -INF             .              .             0.1122      
+t15.i3.w3        -INF            6.0000         6.0000         0.0054      
+t16.i1.w1        -INF             .              .             EPS         
+t16.i1.w2        -INF             .              .             0.0378      
+t16.i1.w3        -INF             .              .             EPS         
+t16.i2.w1        -INF             .              .             EPS         
+t16.i2.w2        -INF             .              .             0.0378      
+t16.i2.w3        -INF             .              .             EPS         
+t16.i3.w1        -INF            6.0000         6.0000         EPS         
+t16.i3.w2        -INF             .              .             0.1500      
+t16.i3.w3        -INF            6.0000         6.0000         0.0054      
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 23
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+---- EQU SOC_eq  State of charge time plus 1
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t2 .i1.w1          .              .              .            -8.1669      
+t2 .i1.w3          .              .              .             6.2197      
+t3 .i1.w1          .              .              .            -8.1669      
+t3 .i1.w3          .              .              .             6.2197      
+t3 .i2.w2          .              .              .             5.0000      
+t3 .i3.w1          .              .              .            -8.1669      
+t3 .i3.w3          .              .              .             6.2197      
+t4 .i1.w1          .              .              .            -8.1669      
+t4 .i1.w3          .              .              .             6.2197      
+t4 .i2.w1          .              .              .            -4.9001      
+t4 .i2.w2          .              .              .             5.0000      
+t4 .i2.w3          .              .              .             3.7318      
+t4 .i3.w1          .              .              .            -8.1669      
+t4 .i3.w3          .              .              .             6.2197      
+t5 .i1.w1          .              .              .            -8.1669      
+t5 .i1.w2          .              .              .            12.2333      
+t5 .i1.w3          .              .              .             6.2197      
+t5 .i2.w1          .              .              .            -4.9001      
+t5 .i2.w2          .              .              .             5.0000      
+t5 .i2.w3          .              .              .             3.7318      
+t5 .i3.w1          .              .              .            -8.1669      
+t5 .i3.w2          .              .              .            12.2333      
+t5 .i3.w3          .              .              .             6.2197      
+t6 .i1.w1          .              .              .            -8.1669      
+t6 .i1.w2          .              .              .            12.2333      
+t6 .i1.w3          .              .              .             6.2197      
+t6 .i2.w1          .              .              .            -4.9001      
+t6 .i2.w2          .              .              .             5.0000      
+t6 .i2.w3          .              .              .             3.7318      
+t6 .i3.w1          .              .              .            -8.1669      
+t6 .i3.w2          .              .              .            12.2333      
+t6 .i3.w3          .              .              .             6.2197      
+t7 .i1.w1          .              .              .            -8.1669      
+t7 .i1.w2          .              .              .            12.2333      
+t7 .i1.w3          .              .              .             6.2197      
+t7 .i2.w1          .              .              .            -4.9001      
+t7 .i2.w2          .              .              .             5.0000      
+t7 .i2.w3          .              .              .             3.7318      
+t7 .i3.w1          .              .              .            -8.1669      
+t7 .i3.w2          .              .              .            12.2333      
+t7 .i3.w3          .              .              .             6.2197      
+t8 .i1.w1          .              .              .            -8.1669      
+t8 .i1.w2          .              .              .            12.2333      
+t8 .i1.w3          .              .              .             6.2197      
+t8 .i2.w1          .              .              .            -4.9001      
+t8 .i2.w2          .              .              .             5.0000      
+t8 .i2.w3          .              .              .             3.7318      
+t8 .i3.w1          .              .              .            -8.1669      
+t8 .i3.w2          .              .              .            12.2333      
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 24
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU SOC_eq  State of charge time plus 1
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t8 .i3.w3          .              .              .             6.2197      
+t9 .i1.w1          .              .              .            -8.1669      
+t9 .i1.w2          .              .              .            12.2333      
+t9 .i1.w3          .              .              .             6.2197      
+t9 .i2.w1          .              .              .            -4.9001      
+t9 .i2.w2          .              .              .             5.0000      
+t9 .i2.w3          .              .              .             3.7318      
+t9 .i3.w1          .              .              .            -8.1669      
+t9 .i3.w2          .              .              .            12.2333      
+t9 .i3.w3          .              .              .             6.2197      
+t10.i1.w1          .              .              .            -8.1669      
+t10.i1.w2          .              .              .            12.2333      
+t10.i1.w3          .              .              .             6.2197      
+t10.i2.w1          .              .              .            -4.9001      
+t10.i2.w2          .              .              .             5.0000      
+t10.i2.w3          .              .              .             3.7318      
+t10.i3.w1          .              .              .            -8.1669      
+t10.i3.w2          .              .              .            12.2333      
+t10.i3.w3          .              .              .             6.2197      
+t11.i1.w1          .              .              .            -8.1669      
+t11.i1.w2          .              .              .            12.2333      
+t11.i1.w3          .              .              .             6.2197      
+t11.i2.w1          .              .              .            -4.9001      
+t11.i2.w2          .              .              .             5.0000      
+t11.i2.w3          .              .              .             3.7318      
+t11.i3.w1          .              .              .            -8.1669      
+t11.i3.w2          .              .              .            12.2333      
+t11.i3.w3          .              .              .             6.2197      
+t12.i1.w1          .              .              .            -8.1669      
+t12.i1.w2          .              .              .              .          
+t12.i1.w3          .              .              .             6.2197      
+t12.i2.w1          .              .              .            -4.9001      
+t12.i2.w2          .              .              .             5.0000      
+t12.i2.w3          .              .              .             3.7318      
+t12.i3.w1          .              .              .            -8.1669      
+t12.i3.w2          .              .              .            12.2333      
+t12.i3.w3          .              .              .             6.2197      
+t13.i1.w1          .              .              .            -8.1669      
+t13.i1.w2          .              .              .              .          
+t13.i1.w3          .              .              .             6.2197      
+t13.i2.w1          .              .              .            -4.9001      
+t13.i2.w2          .              .              .             5.0000      
+t13.i2.w3          .              .              .             3.7318      
+t13.i3.w1          .              .              .            -8.1669      
+t13.i3.w2          .              .              .            12.2333      
+t13.i3.w3          .              .              .             6.2197      
+t14.i1.w1          .              .              .            -8.1669      
+t14.i1.w2          .              .              .              .          
+t14.i1.w3          .              .              .             6.2197      
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 25
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU SOC_eq  State of charge time plus 1
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t14.i2.w1          .              .              .            -4.9001      
+t14.i2.w2          .              .              .             5.0000      
+t14.i2.w3          .              .              .              .          
+t14.i3.w1          .              .              .            -8.1669      
+t14.i3.w2          .              .              .              .          
+t14.i3.w3          .              .              .             6.2197      
+t15.i1.w1          .              .              .            -8.1669      
+t15.i1.w2          .              .              .              .          
+t15.i1.w3          .              .              .             6.2197      
+t15.i2.w1          .              .              .              .          
+t15.i2.w2          .              .              .             5.0000      
+t15.i2.w3          .              .              .              .          
+t15.i3.w1          .              .              .            -8.1669      
+t15.i3.w2          .              .              .              .          
+t15.i3.w3          .              .              .             6.2197      
+t16.i1.w1          .              .              .              .          
+t16.i1.w2          .              .              .           -24.9430      
+t16.i1.w3          .              .              .              .          
+t16.i2.w1          .              .              .              .          
+t16.i2.w2          .              .              .           -14.9658      
+t16.i2.w3          .              .              .              .          
+t16.i3.w1          .              .              .            -8.1669      
+t16.i3.w2          .              .              .              .          
+t16.i3.w3          .              .              .             6.2197      
+
+---- EQU SOC_Tdep  SOC at departure
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t11.i1.w2         0.9000         0.9000         0.9000       -12.2333      
+t12.i1.w2         0.9000         0.9000         0.9000         EPS         
+t13.i1.w2         0.9000         0.9000         0.9000         EPS         
+t13.i2.w1         0.9000         0.9000         0.9000         EPS         
+t13.i2.w3         0.9000         0.9000         0.9000        -3.7318      
+t13.i3.w2         0.9000         0.9000         0.9000       -12.2333      
+t14.i1.w2         0.9000         0.9000         0.9000         EPS         
+t14.i2.w1         0.9000         0.9000         0.9000         4.9001      
+t14.i2.w3         0.9000         0.9000         0.9000         EPS         
+t14.i3.w2         0.9000         0.9000         0.9000         EPS         
+t15.i1.w1         0.9000         0.9000         0.9000         8.1669      
+t15.i1.w2         0.9000         0.9000         0.9000       -24.9430      
+t15.i1.w3         0.9000         0.9000         0.9000        -6.2197      
+t15.i2.w1         0.9000         0.9000         0.9000         EPS         
+t15.i2.w2         0.9000         0.9000         0.9000       -19.9658      
+t15.i2.w3         0.9000         0.9000         0.9000         EPS         
+t15.i3.w2         0.9000         0.9000         0.9000         EPS         
+t16.i1.w1         0.9000         0.9000         0.9000         EPS         
+t16.i1.w2         0.9000         0.9000         0.9000        24.9430      
+t16.i1.w3         0.9000         0.9000         0.9000         EPS         
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 26
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU SOC_Tdep  SOC at departure
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t16.i2.w1         0.9000         0.9000         0.9000         EPS         
+t16.i2.w2         0.9000         0.9000         0.9000        14.9658      
+t16.i2.w3         0.9000         0.9000         0.9000         EPS         
+t16.i3.w1         0.9000         0.9000         0.9000         8.1669      
+t16.i3.w2         0.9000         0.9000         0.9000         EPS         
+t16.i3.w3         0.9000         0.9000         0.9000        -6.2197      
+
+---- EQU SOC_Tarr  SOC at arrival
+
+                LOWER          LEVEL          UPPER         MARGINAL
+
+t1.i1.w1         0.6400         0.6400         0.6400        -8.1669      
+t1.i1.w3         0.6000         0.6000         0.6000         6.2197      
+t2.i2.w2         0.7000         0.7000         0.7000         5.0000      
+t2.i3.w1         0.6100         0.6100         0.6100        -8.1669      
+t2.i3.w3         0.5000         0.5000         0.5000         6.2197      
+t3.i2.w1         0.6700         0.6700         0.6700        -4.9001      
+t3.i2.w3         0.7000         0.7000         0.7000         3.7318      
+t4.i1.w2         0.6000         0.6000         0.6000        12.2333      
+t4.i3.w2         0.5000         0.5000         0.5000        12.2333      
+
+---- EQU R_up  Regulation up max
+
+              LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .w1        -INF             .              .             0.1665      
+t1 .w2        -INF             .              .             0.0175      
+t1 .w3        -INF           -6.0000          .              .          
+t2 .w1        -INF             .              .             0.1500      
+t2 .w2        -INF             .              .             0.0340      
+t2 .w3        -INF           -2.6667          .              .          
+t3 .w1        -INF             .              .             0.1810      
+t3 .w2        -INF             .              .              .          
+t3 .w3        -INF             .              .              .          
+t4 .w1        -INF             .              .             0.2115      
+t4 .w2        -INF          -12.0000          .              .          
+t4 .w3        -INF             .              .             0.0065      
+t5 .w1        -INF             .              .             0.2420      
+t5 .w2        -INF           -1.3333          .              .          
+t5 .w3        -INF             .              .             0.0050      
+t6 .w1        -INF             .              .             0.2574      
+t6 .w2        -INF             .              .              .          
+t6 .w3        -INF             .              .             0.0035      
+t7 .w1        -INF             .              .             0.3978      
+t7 .w2        -INF             .              .              .          
+t7 .w3        -INF             .              .             0.0024      
+t8 .w1        -INF             .              .             0.3795      
+t8 .w2        -INF             .              .              .          
+t8 .w3        -INF             .              .             0.0049      
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 27
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU R_up  Regulation up max
+
+              LOWER          LEVEL          UPPER         MARGINAL
+
+t9 .w1        -INF             .              .             0.3897      
+t9 .w2        -INF             .              .              .          
+t9 .w3        -INF             .              .             0.0009      
+t10.w1        -INF             .              .             0.3723      
+t10.w2        -INF             .              .              .          
+t10.w3        -INF             .              .             0.0009      
+t11.w1        -INF             .              .             0.3855      
+t11.w2        -INF             .              .              .          
+t11.w3        -INF             .              .              .          
+t12.w1        -INF             .              .             0.3920      
+t12.w2        -INF           -1.3333          .              .          
+t12.w3        -INF             .              .              .          
+t13.w1        -INF             .              .             0.4014      
+t13.w2        -INF             .              .              .          
+t13.w3        -INF             .              .              .          
+t14.w1        -INF             .              .             0.3923      
+t14.w2        -INF             .              .             0.0030      
+t14.w3        -INF             .              .              .          
+t15.w1        -INF             .              .              .          
+t15.w2        -INF             .              .             0.3145      
+t15.w3        -INF           -6.0000          .              .          
+t16.w1        -INF             .              .              .          
+t16.w2        -INF             .              .             0.1775      
+t16.w3        -INF             .              .              .          
+
+---- EQU R_d  Regulation down max
+
+              LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .w1        -INF             .             6.0000          .          
+t1 .w2        -INF             .              .              .          
+t1 .w3        -INF            6.0000         6.0000          .          
+t2 .w1        -INF             .            12.0000          .          
+t2 .w2        -INF             .             6.0000          .          
+t2 .w3        -INF            2.6667        12.0000          .          
+t3 .w1        -INF             .            18.0000          .          
+t3 .w2        -INF             .             6.0000          .          
+t3 .w3        -INF             .            18.0000          .          
+t4 .w1        -INF             .            18.0000          .          
+t4 .w2        -INF           12.0000        18.0000          .          
+t4 .w3        -INF             .            18.0000          .          
+t5 .w1        -INF           14.8889        18.0000          .          
+t5 .w2        -INF           16.2222        18.0000          .          
+t5 .w3        -INF           14.8889        18.0000          .          
+t6 .w1        -INF           18.0000        18.0000         0.0179      
+t6 .w2        -INF           18.0000        18.0000         0.0171      
+t6 .w3        -INF           18.0000        18.0000          .          
+t7 .w1        -INF           18.0000        18.0000         0.1883      
+t7 .w2        -INF           18.0000        18.0000         0.0345      
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 28
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU R_d  Regulation down max
+
+              LOWER          LEVEL          UPPER         MARGINAL
+
+t7 .w3        -INF           18.0000        18.0000          .          
+t8 .w1        -INF           18.0000        18.0000         0.1940      
+t8 .w2        -INF           18.0000        18.0000         0.0369      
+t8 .w3        -INF           18.0000        18.0000          .          
+t9 .w1        -INF           18.0000        18.0000         0.1972      
+t9 .w2        -INF           18.0000        18.0000         0.0297      
+t9 .w3        -INF           18.0000        18.0000          .          
+t10.w1        -INF           18.0000        18.0000         0.2028      
+t10.w2        -INF           18.0000        18.0000         0.0441      
+t10.w3        -INF           18.0000        18.0000          .          
+t11.w1        -INF           18.0000        18.0000         0.2160      
+t11.w2        -INF           18.0000        18.0000         0.0054      
+t11.w3        -INF           18.0000        18.0000         0.0107      
+t12.w1        -INF           12.0000        12.0000         0.2185      
+t12.w2        -INF           13.3333        18.0000          .          
+t12.w3        -INF           12.0000        12.0000         0.0111      
+t13.w1        -INF           12.0000        12.0000         0.1834      
+t13.w2        -INF           12.0000        18.0000          .          
+t13.w3        -INF           12.0000        12.0000          .          
+t14.w1        -INF            6.0000         6.0000         0.1688      
+t14.w2        -INF            6.0000        12.0000          .          
+t14.w3        -INF            6.0000         6.0000         0.0114      
+t15.w1        -INF             .             6.0000          .          
+t15.w2        -INF             .            12.0000          .          
+t15.w3        -INF            6.0000         6.0000          .          
+t16.w1        -INF             .             6.0000          .          
+t16.w2        -INF             .              .              .          
+t16.w3        -INF             .             6.0000          .          
+
+---- EQU Full_eq  Battery full
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .i1.w1          .              .              .             EPS         
+t1 .i1.w2          .              .              .             EPS         
+t1 .i1.w3          .              .              .             EPS         
+t1 .i2.w1          .              .              .             EPS         
+t1 .i2.w2          .              .              .             EPS         
+t1 .i2.w3          .              .              .             EPS         
+t1 .i3.w1          .              .              .             EPS         
+t1 .i3.w2          .              .              .             EPS         
+t1 .i3.w3          .              .              .             EPS         
+t2 .i1.w1          .              .              .             EPS         
+t2 .i1.w2          .              .              .             EPS         
+t2 .i1.w3          .              .              .             EPS         
+t2 .i2.w1          .              .              .             EPS         
+t2 .i2.w2          .              .              .             EPS         
+t2 .i2.w3          .              .              .             EPS         
+t2 .i3.w1          .              .              .             EPS         
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 29
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU Full_eq  Battery full
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t2 .i3.w2          .              .              .             EPS         
+t2 .i3.w3          .              .              .             EPS         
+t3 .i1.w1          .              .              .             EPS         
+t3 .i1.w2          .              .              .             EPS         
+t3 .i1.w3          .              .              .             EPS         
+t3 .i2.w1          .              .              .             EPS         
+t3 .i2.w2          .              .              .             EPS         
+t3 .i2.w3          .              .              .             EPS         
+t3 .i3.w1          .              .              .             EPS         
+t3 .i3.w2          .              .              .             EPS         
+t3 .i3.w3          .              .              .             EPS         
+t4 .i1.w1          .              .              .             EPS         
+t4 .i1.w2          .              .              .             EPS         
+t4 .i1.w3          .              .              .             EPS         
+t4 .i2.w1          .              .              .             EPS         
+t4 .i2.w2          .              .              .             EPS         
+t4 .i2.w3          .              .              .             EPS         
+t4 .i3.w1          .              .              .             EPS         
+t4 .i3.w2          .              .              .             EPS         
+t4 .i3.w3          .              .              .             EPS         
+t5 .i1.w1          .              .              .             EPS         
+t5 .i1.w2          .              .              .             EPS         
+t5 .i1.w3          .              .              .             EPS         
+t5 .i2.w1          .              .              .             EPS         
+t5 .i2.w2          .              .              .             EPS         
+t5 .i2.w3          .              .              .             EPS         
+t5 .i3.w1          .              .              .             EPS         
+t5 .i3.w2          .              .              .             EPS         
+t5 .i3.w3          .              .              .             EPS         
+t6 .i1.w1          .              .              .             EPS         
+t6 .i1.w2          .              .              .             EPS         
+t6 .i1.w3          .              .              .             EPS         
+t6 .i2.w1          .              .              .             EPS         
+t6 .i2.w2          .              .              .             EPS         
+t6 .i2.w3          .              .              .             EPS         
+t6 .i3.w1          .              .              .             EPS         
+t6 .i3.w2          .              .              .             EPS         
+t6 .i3.w3          .              .              .             EPS         
+t7 .i1.w1          .              .              .             EPS         
+t7 .i1.w2          .              .              .             EPS         
+t7 .i1.w3          .              .              .             EPS         
+t7 .i2.w1          .              .              .             EPS         
+t7 .i2.w2          .              .              .             EPS         
+t7 .i2.w3          .              .              .             EPS         
+t7 .i3.w1          .              .              .             EPS         
+t7 .i3.w2          .              .              .             EPS         
+t7 .i3.w3          .              .              .             EPS         
+t8 .i1.w1          .              .              .             EPS         
+t8 .i1.w2          .              .              .             EPS         
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 30
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU Full_eq  Battery full
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t8 .i1.w3          .              .              .             EPS         
+t8 .i2.w1          .              .              .             EPS         
+t8 .i2.w2          .              .              .             EPS         
+t8 .i2.w3          .              .              .             EPS         
+t8 .i3.w1          .              .              .             EPS         
+t8 .i3.w2          .              .              .             EPS         
+t8 .i3.w3          .              .              .             EPS         
+t9 .i1.w1          .              .              .             EPS         
+t9 .i1.w2          .              .              .             EPS         
+t9 .i1.w3          .              .              .             EPS         
+t9 .i2.w1          .              .              .             EPS         
+t9 .i2.w2          .              .              .             EPS         
+t9 .i2.w3          .              .              .             EPS         
+t9 .i3.w1          .              .              .             EPS         
+t9 .i3.w2          .              .              .             EPS         
+t9 .i3.w3          .              .              .             EPS         
+t10.i1.w1          .              .              .             EPS         
+t10.i1.w2          .              .              .             EPS         
+t10.i1.w3          .              .              .             EPS         
+t10.i2.w1          .              .              .             EPS         
+t10.i2.w2          .              .              .             EPS         
+t10.i2.w3          .              .              .             EPS         
+t10.i3.w1          .              .              .             EPS         
+t10.i3.w2          .              .              .             EPS         
+t10.i3.w3          .              .              .             EPS         
+t11.i1.w1          .              .              .             EPS         
+t11.i1.w2          .              .              .             EPS         
+t11.i1.w3          .              .              .             EPS         
+t11.i2.w1          .              .              .             EPS         
+t11.i2.w2          .              .              .             EPS         
+t11.i2.w3          .              .              .             EPS         
+t11.i3.w1          .              .              .             EPS         
+t11.i3.w2          .              .              .             EPS         
+t11.i3.w3          .              .              .             EPS         
+t12.i1.w1          .              .              .             EPS         
+t12.i1.w2          .              .              .             EPS         
+t12.i1.w3          .              .              .             EPS         
+t12.i2.w1          .              .              .             EPS         
+t12.i2.w2          .              .              .             EPS         
+t12.i2.w3          .              .              .             EPS         
+t12.i3.w1          .              .              .             EPS         
+t12.i3.w2          .              .              .             EPS         
+t12.i3.w3          .              .              .             EPS         
+t13.i1.w1          .              .              .             EPS         
+t13.i1.w2          .              .              .             EPS         
+t13.i1.w3          .              .              .             EPS         
+t13.i2.w1          .              .              .             EPS         
+t13.i2.w2          .              .              .             EPS         
+t13.i2.w3          .              .              .             EPS         
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 31
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     EQU Full_eq  Battery full
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t13.i3.w1          .              .              .             EPS         
+t13.i3.w2          .              .              .             EPS         
+t13.i3.w3          .              .              .             EPS         
+t14.i1.w1          .              .              .             EPS         
+t14.i1.w2          .              .              .             EPS         
+t14.i1.w3          .              .              .             EPS         
+t14.i2.w1          .              .              .             EPS         
+t14.i2.w2          .              .              .             EPS         
+t14.i2.w3          .              .              .             EPS         
+t14.i3.w1          .              .              .             EPS         
+t14.i3.w2          .              .              .             EPS         
+t14.i3.w3          .              .              .             EPS         
+t15.i1.w1          .              .              .             EPS         
+t15.i1.w2          .              .              .             EPS         
+t15.i1.w3          .              .              .             EPS         
+t15.i2.w1          .              .              .             EPS         
+t15.i2.w2          .              .              .             EPS         
+t15.i2.w3          .              .              .             EPS         
+t15.i3.w1          .              .              .             EPS         
+t15.i3.w2          .              .              .             EPS         
+t15.i3.w3          .              .              .             EPS         
+t16.i1.w1          .              .              .             EPS         
+t16.i1.w2          .              .              .             EPS         
+t16.i1.w3          .              .              .             EPS         
+t16.i2.w1          .              .              .             EPS         
+t16.i2.w2          .              .              .             EPS         
+t16.i2.w3          .              .              .             EPS         
+t16.i3.w1          .              .              .             EPS         
+t16.i3.w2          .              .              .             EPS         
+t16.i3.w3          .              .              .             EPS         
+
+---- VAR SOC  SOC
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .i1.w1          .             0.6400         1.0000          .          
+t1 .i1.w3          .             0.6000         1.0000          .          
+t2 .i1.w1          .             0.6400         1.0000          .          
+t2 .i1.w3          .             0.6540         1.0000          .          
+t2 .i2.w2          .             0.7000         1.0000          .          
+t2 .i3.w1          .             0.6100         1.0000          .          
+t2 .i3.w3          .             0.5000         1.0000          .          
+t3 .i1.w1          .             0.6400         1.0000          .          
+t3 .i1.w3          .             0.6540         1.0000          .          
+t3 .i2.w1          .             0.6700         1.0000          .          
+t3 .i2.w2          .             0.7000         1.0000          .          
+t3 .i2.w3          .             0.7000         1.0000          .          
+t3 .i3.w1          .             0.6100         1.0000          .          
+t3 .i3.w3          .             0.5240         1.0000          .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 32
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR SOC  SOC
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t4 .i1.w1          .             0.6400         1.0000          .          
+t4 .i1.w2          .             0.6000         1.0000          .          
+t4 .i1.w3          .             0.6540         1.0000          .          
+t4 .i2.w1          .             0.6700         1.0000          .          
+t4 .i2.w2          .             0.7000         1.0000          .          
+t4 .i2.w3          .             0.7000         1.0000          .          
+t4 .i3.w1          .             0.6100         1.0000          .          
+t4 .i3.w2          .             0.5000         1.0000          .          
+t4 .i3.w3          .             0.5240         1.0000          .          
+t5 .i1.w1          .             0.6400         1.0000          .          
+t5 .i1.w2          .             0.6540         1.0000          .          
+t5 .i1.w3          .             0.6540         1.0000          .          
+t5 .i2.w1          .             0.6700         1.0000          .          
+t5 .i2.w2          .             0.7000         1.0000          .          
+t5 .i2.w3          .             0.7000         1.0000          .          
+t5 .i3.w1          .             0.6100         1.0000          .          
+t5 .i3.w2          .             0.5540         1.0000          .          
+t5 .i3.w3          .             0.5240         1.0000          .          
+t6 .i1.w1          .             0.6940         1.0000          .          
+t6 .i1.w2          .             0.7080         1.0000          .          
+t6 .i1.w3          .             0.7080         1.0000          .          
+t6 .i2.w1          .             0.6700         1.0000          .          
+t6 .i2.w2          .             0.7000         1.0000          .          
+t6 .i2.w3          .             0.7217         1.0000          .          
+t6 .i3.w1          .             0.6230         1.0000          .          
+t6 .i3.w2          .             0.5790         1.0000          .          
+t6 .i3.w3          .             0.5240         1.0000          .          
+t7 .i1.w1          .             0.7480         1.0000          .          
+t7 .i1.w2          .             0.7350         1.0000          .          
+t7 .i1.w3          .             0.7110         1.0000          .          
+t7 .i2.w1          .             0.6700         1.0000          .          
+t7 .i2.w2          .             0.7000         1.0000          .          
+t7 .i2.w3          .             0.7617         1.0000          .          
+t7 .i3.w1          .             0.6500         1.0000          .          
+t7 .i3.w2          .             0.6330         1.0000          .          
+t7 .i3.w3          .             0.5780         1.0000          .          
+t8 .i1.w1          .             0.7750         1.0000          .          
+t8 .i1.w2          .             0.7650         1.0000          .          
+t8 .i1.w3          .             0.7650         1.0000          .          
+t8 .i2.w1          .             0.7600         1.0000          .          
+t8 .i2.w2          .             0.7000         1.0000          .          
+t8 .i2.w3          .             0.7617         1.0000          .          
+t8 .i3.w1          .             0.6500         1.0000          .          
+t8 .i3.w2          .             0.6840         1.0000          .          
+t8 .i3.w3          .             0.6050         1.0000          .          
+t9 .i1.w1          .             0.8290         1.0000          .          
+t9 .i1.w2          .             0.8190         1.0000          .          
+t9 .i1.w3          .             0.8190         1.0000          .          
+t9 .i2.w1          .             0.7600         1.0000          .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 33
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR SOC  SOC
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t9 .i2.w2          .             0.7000         1.0000          .          
+t9 .i2.w3          .             0.7650         1.0000          .          
+t9 .i3.w1          .             0.6770         1.0000          .          
+t9 .i3.w2          .             0.7110         1.0000          .          
+t9 .i3.w3          .             0.6300         1.0000          .          
+t10.i1.w1          .             0.8290         1.0000          .          
+t10.i1.w2          .             0.8460         1.0000          .          
+t10.i1.w3          .             0.8730         1.0000          .          
+t10.i2.w1          .             0.8050         1.0000          .          
+t10.i2.w2          .             0.7000         1.0000          .          
+t10.i2.w3          .             0.7650         1.0000          .          
+t10.i3.w1          .             0.7310         1.0000          .          
+t10.i3.w2          .             0.7650         1.0000          .          
+t10.i3.w3          .             0.6570         1.0000          .          
+t11.i1.w1          .             0.8730         1.0000          .          
+t11.i1.w2          .             0.9000         1.0000          .          
+t11.i1.w3          .             0.9000         1.0000          .          
+t11.i2.w1          .             0.8667         1.0000          .          
+t11.i2.w2          .             0.7000         1.0000          .          
+t11.i2.w3          .             0.7650         1.0000          .          
+t11.i3.w1          .             0.7310         1.0000          .          
+t11.i3.w2          .             0.7920         1.0000          .          
+t11.i3.w3          .             0.7110         1.0000          .          
+t12.i1.w1          .             0.9000         1.0000          .          
+t12.i1.w2          .             0.9000         1.0000          .          
+t12.i1.w3          .             0.9000         1.0000          .          
+t12.i2.w1          .             0.8667         1.0000          .          
+t12.i2.w2          .             0.7450         1.0000          .          
+t12.i2.w3          .             0.8100         1.0000          .          
+t12.i3.w1          .             0.7850         1.0000          .          
+t12.i3.w2          .             0.8460         1.0000          .          
+t12.i3.w3          .             0.7650         1.0000          .          
+t13.i1.w1          .             0.9000         1.0000          .          
+t13.i1.w2          .             0.9000         1.0000          .          
+t13.i1.w3          .             0.9000         1.0000          .          
+t13.i2.w1          .             0.9000         1.0000          .          
+t13.i2.w2          .             0.7650         1.0000          .          
+t13.i2.w3          .             0.9000         1.0000          .          
+t13.i3.w1          .             0.8190         1.0000          .          
+t13.i3.w2          .             0.9000         1.0000          .          
+t13.i3.w3          .             0.7650         1.0000          .          
+t14.i1.w1          .             0.9000         1.0000          .          
+t14.i1.w2          .             0.9000         1.0000          .          
+t14.i1.w3          .             0.9000         1.0000          .          
+t14.i2.w1          .             0.9000         1.0000          .          
+t14.i2.w2          .             0.8550         1.0000          .          
+t14.i2.w3          .             0.9000         1.0000          .          
+t14.i3.w1          .             0.8730         1.0000          .          
+t14.i3.w2          .             0.9000         1.0000          .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 34
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR SOC  SOC
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t14.i3.w3          .             0.8190         1.0000          .          
+t15.i1.w1          .             0.9000         1.0000          .          
+t15.i1.w2          .             0.9000         1.0000          .          
+t15.i1.w3          .             0.9000         1.0000          .          
+t15.i2.w1          .             0.9000         1.0000          .          
+t15.i2.w2          .             0.9000         1.0000          .          
+t15.i2.w3          .             0.9000         1.0000          .          
+t15.i3.w1          .             0.9000         1.0000          .          
+t15.i3.w2          .             0.9000         1.0000          .          
+t15.i3.w3          .             0.8460         1.0000          .          
+t16.i1.w1          .             0.9000         1.0000          .          
+t16.i1.w2          .             0.9000         1.0000          .          
+t16.i1.w3          .             0.9000         1.0000          .          
+t16.i2.w1          .             0.9000         1.0000          .          
+t16.i2.w2          .             0.9000         1.0000          .          
+t16.i2.w3          .             0.9000         1.0000          .          
+t16.i3.w1          .             0.9000         1.0000          .          
+t16.i3.w2          .             0.9000         1.0000          .          
+t16.i3.w3          .             0.9000         1.0000          .          
+
+---- VAR E_DA  Energy bid day ahead
+
+           LOWER          LEVEL          UPPER         MARGINAL
+
+t1           .              .            18.0000        -0.0275      
+t2           .              .            18.0000        -0.0410      
+t3           .              .            18.0000        -0.0120      
+t4           .            18.0000        18.0000         0.0300      
+t5           .            18.0000        18.0000         0.0576      
+t6           .            18.0000        18.0000         0.0365      
+t7           .            18.0000        18.0000         0.0160      
+t8           .            18.0000        18.0000         0.0111      
+t9           .            18.0000        18.0000         0.0293      
+t10          .              .            18.0000        -0.0062      
+t11          .              .            18.0000        -0.0161      
+t12          .              .            18.0000        -0.0071      
+t13          .            18.0000        18.0000         0.0154      
+t14          .              .            18.0000        -0.0544      
+t15          .              .            18.0000        -0.0707      
+t16          .              .            18.0000        -0.0811      
+
+---- VAR R_DA  Regulation bid day ahead
+
+           LOWER          LEVEL          UPPER         MARGINAL
+
+t1         -INF             .            +INF             .          
+t2         -INF             .            +INF             .          
+t3         -INF             .            +INF             .          
+t4         -INF             .            +INF             .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 35
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR R_DA  Regulation bid day ahead
+
+           LOWER          LEVEL          UPPER         MARGINAL
+
+t5         -INF            7.4444        +INF             .          
+t6         -INF            9.0000        +INF             .          
+t7         -INF            9.0000        +INF             .          
+t8         -INF            9.0000        +INF             .          
+t9         -INF            9.0000        +INF             .          
+t10        -INF            9.0000        +INF             .          
+t11        -INF            9.0000        +INF             .          
+t12        -INF            6.0000        +INF             .          
+t13        -INF            6.0000        +INF             .          
+t14        -INF            3.0000        +INF             .          
+t15        -INF             .            +INF             .          
+t16        -INF             .            +INF             .          
+
+---- VAR E_RT  Energy consumption RT Total
+
+              LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .w1        -INF             .            +INF             .          
+t1 .w2        -INF             .            +INF             .          
+t1 .w3        -INF            6.0000        +INF             .          
+t2 .w1        -INF             .            +INF             .          
+t2 .w2        -INF             .            +INF             .          
+t2 .w3        -INF            2.6667        +INF             .          
+t3 .w1        -INF             .            +INF             .          
+t3 .w2        -INF             .            +INF             .          
+t3 .w3        -INF             .            +INF             .          
+t4 .w1        -INF             .            +INF             .          
+t4 .w2        -INF           12.0000        +INF             .          
+t4 .w3        -INF             .            +INF             .          
+t5 .w1        -INF            7.4444        +INF             .          
+t5 .w2        -INF            8.7778        +INF             .          
+t5 .w3        -INF            7.4444        +INF             .          
+t6 .w1        -INF            9.0000        +INF             .          
+t6 .w2        -INF            9.0000        +INF             .          
+t6 .w3        -INF            9.0000        +INF             .          
+t7 .w1        -INF            9.0000        +INF             .          
+t7 .w2        -INF            9.0000        +INF             .          
+t7 .w3        -INF            9.0000        +INF             .          
+t8 .w1        -INF            9.0000        +INF             .          
+t8 .w2        -INF            9.0000        +INF             .          
+t8 .w3        -INF            9.0000        +INF             .          
+t9 .w1        -INF            9.0000        +INF             .          
+t9 .w2        -INF            9.0000        +INF             .          
+t9 .w3        -INF            9.0000        +INF             .          
+t10.w1        -INF            9.0000        +INF             .          
+t10.w2        -INF            9.0000        +INF             .          
+t10.w3        -INF            9.0000        +INF             .          
+t11.w1        -INF            9.0000        +INF             .          
+t11.w2        -INF            9.0000        +INF             .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 36
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR E_RT  Energy consumption RT Total
+
+              LOWER          LEVEL          UPPER         MARGINAL
+
+t11.w3        -INF            9.0000        +INF             .          
+t12.w1        -INF            6.0000        +INF             .          
+t12.w2        -INF            7.3333        +INF             .          
+t12.w3        -INF            6.0000        +INF             .          
+t13.w1        -INF            6.0000        +INF             .          
+t13.w2        -INF            6.0000        +INF             .          
+t13.w3        -INF            6.0000        +INF             .          
+t14.w1        -INF            3.0000        +INF             .          
+t14.w2        -INF            3.0000        +INF             .          
+t14.w3        -INF            3.0000        +INF             .          
+t15.w1        -INF             .            +INF             .          
+t15.w2        -INF             .            +INF             .          
+t15.w3        -INF            6.0000        +INF             .          
+t16.w1        -INF             .            +INF             .          
+t16.w2        -INF             .            +INF             .          
+t16.w3        -INF             .            +INF             .          
+
+---- VAR E_RTi  Energy consumption RT of ith vehicle
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .i1.w1          .              .            +INF           -0.0735      
+t1 .i1.w2          .              .            +INF           -0.0884      
+t1 .i1.w3          .             6.0000        +INF             .          
+t1 .i2.w1          .              .            +INF            EPS         
+t1 .i2.w2          .              .            +INF           -0.0884      
+t1 .i2.w3          .              .            +INF           -0.0541      
+t1 .i3.w1          .              .            +INF             .          
+t1 .i3.w2          .              .            +INF           -0.0884      
+t1 .i3.w3          .              .            +INF           -0.0541      
+t2 .i1.w1          .              .            +INF           -0.0735      
+t2 .i1.w2          .              .            +INF           -0.0770      
+t2 .i1.w3          .              .            +INF            EPS         
+t2 .i2.w1          .              .            +INF             .          
+t2 .i2.w2          .              .            +INF           -0.0020      
+t2 .i2.w3          .              .            +INF           -0.0560      
+t2 .i3.w1          .              .            +INF           -0.0735      
+t2 .i3.w2          .              .            +INF           -0.0770      
+t2 .i3.w3          .             2.6667        +INF             .          
+t3 .i1.w1          .              .            +INF           -0.0675      
+t3 .i1.w2          .              .            +INF           -0.0960      
+t3 .i1.w3          .              .            +INF           -0.0050      
+t3 .i2.w1          .              .            +INF           -0.0675      
+t3 .i2.w2          .              .            +INF           -0.0210      
+t3 .i2.w3          .              .            +INF           -0.0050      
+t3 .i3.w1          .              .            +INF           -0.0675      
+t3 .i3.w2          .              .            +INF           -0.0960      
+t3 .i3.w3          .              .            +INF           -0.0050      
+t4 .i1.w1          .              .            +INF           -0.0435      
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 37
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR E_RTi  Energy consumption RT of ith vehicle
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t4 .i1.w2          .             6.0000        +INF             .          
+t4 .i1.w3          .              .            +INF            EPS         
+t4 .i2.w1          .              .            +INF           -0.0435      
+t4 .i2.w2          .              .            +INF           -0.0090      
+t4 .i2.w3          .              .            +INF             .          
+t4 .i3.w1          .              .            +INF           -0.0435      
+t4 .i3.w2          .             6.0000        +INF             .          
+t4 .i3.w3          .              .            +INF            EPS         
+t5 .i1.w1          .             6.0000        +INF             .          
+t5 .i1.w2          .             6.0000        +INF             .          
+t5 .i1.w3          .             6.0000        +INF             .          
+t5 .i2.w1          .              .            +INF            EPS         
+t5 .i2.w2          .              .            +INF           -0.0351      
+t5 .i2.w3          .             1.4444        +INF             .          
+t5 .i3.w1          .             1.4444        +INF             .          
+t5 .i3.w2          .             2.7778        +INF             .          
+t5 .i3.w3          .              .            +INF            EPS         
+t6 .i1.w1          .             6.0000        +INF             .          
+t6 .i1.w2          .             3.0000        +INF             .          
+t6 .i1.w3          .             0.3333        +INF             .          
+t6 .i2.w1          .              .            +INF            EPS         
+t6 .i2.w2          .              .            +INF           -0.0351      
+t6 .i2.w3          .             2.6667        +INF             .          
+t6 .i3.w1          .             3.0000        +INF             .          
+t6 .i3.w2          .             6.0000        +INF             .          
+t6 .i3.w3          .             6.0000        +INF             .          
+t7 .i1.w1          .             3.0000        +INF             .          
+t7 .i1.w2          .             3.3333        +INF             .          
+t7 .i1.w3          .             6.0000        +INF             .          
+t7 .i2.w1          .             6.0000        +INF             .          
+t7 .i2.w2          .              .            +INF           -0.0351      
+t7 .i2.w3          .              .            +INF            EPS         
+t7 .i3.w1          .              .            +INF            EPS         
+t7 .i3.w2          .             5.6667        +INF             .          
+t7 .i3.w3          .             3.0000        +INF             .          
+t8 .i1.w1          .             6.0000        +INF             .          
+t8 .i1.w2          .             6.0000        +INF             .          
+t8 .i1.w3          .             6.0000        +INF             .          
+t8 .i2.w1          .              .            +INF            EPS         
+t8 .i2.w2          .              .            +INF           -0.0351      
+t8 .i2.w3          .             0.2222        +INF             .          
+t8 .i3.w1          .             3.0000        +INF             .          
+t8 .i3.w2          .             3.0000        +INF             .          
+t8 .i3.w3          .             2.7778        +INF             .          
+t9 .i1.w1          .              .            +INF            EPS         
+t9 .i1.w2          .             3.0000        +INF             .          
+t9 .i1.w3          .             6.0000        +INF             .          
+t9 .i2.w1          .             3.0000        +INF             .          
+t9 .i2.w2          .              .            +INF           -0.0351      
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 38
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR E_RTi  Energy consumption RT of ith vehicle
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t9 .i2.w3          .              .            +INF            EPS         
+t9 .i3.w1          .             6.0000        +INF             .          
+t9 .i3.w2          .             6.0000        +INF             .          
+t9 .i3.w3          .             3.0000        +INF             .          
+t10.i1.w1          .             4.8889        +INF             .          
+t10.i1.w2          .             6.0000        +INF             .          
+t10.i1.w3          .             3.0000        +INF             .          
+t10.i2.w1          .             4.1111        +INF             .          
+t10.i2.w2          .              .            +INF           -0.0351      
+t10.i2.w3          .              .            +INF            EPS         
+t10.i3.w1          .              .            +INF            EPS         
+t10.i3.w2          .             3.0000        +INF             .          
+t10.i3.w3          .             6.0000        +INF             .          
+t11.i1.w1          .             3.0000        +INF             .          
+t11.i1.w2          .              .            +INF           -0.0750      
+t11.i1.w3          .              .            +INF            EPS         
+t11.i2.w1          .              .            +INF            EPS         
+t11.i2.w2          .             3.0000        +INF             .          
+t11.i2.w3          .             3.0000        +INF             .          
+t11.i3.w1          .             6.0000        +INF             .          
+t11.i3.w2          .             6.0000        +INF             .          
+t11.i3.w3          .             6.0000        +INF             .          
+t12.i1.w1          .              .            +INF            EPS         
+t12.i1.w2          .              .            +INF           -0.0750      
+t12.i1.w3          .              .            +INF            EPS         
+t12.i2.w1          .             2.2222        +INF             .          
+t12.i2.w2          .             1.3333        +INF             .          
+t12.i2.w3          .             6.0000        +INF             .          
+t12.i3.w1          .             3.7778        +INF             .          
+t12.i3.w2          .             6.0000        +INF             .          
+t12.i3.w3          .              .            +INF             .          
+t13.i1.w1          .              .            +INF             .          
+t13.i1.w2          .              .            +INF           -0.0600      
+t13.i1.w3          .              .            +INF             .          
+t13.i2.w1          .              .            +INF             .          
+t13.i2.w2          .             6.0000        +INF             .          
+t13.i2.w3          .              .            +INF           -0.0449      
+t13.i3.w1          .             6.0000        +INF             .          
+t13.i3.w2          .              .            +INF           -0.0600      
+t13.i3.w3          .             6.0000        +INF             .          
+t14.i1.w1          .              .            +INF            EPS         
+t14.i1.w2          .              .            +INF           -0.0750      
+t14.i1.w3          .              .            +INF            EPS         
+t14.i2.w1          .              .            +INF             .          
+t14.i2.w2          .             3.0000        +INF             .          
+t14.i2.w3          .              .            +INF           -0.0560      
+t14.i3.w1          .             3.0000        +INF             .          
+t14.i3.w2          .              .            +INF           -0.0750      
+t14.i3.w3          .             3.0000        +INF             .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 39
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR E_RTi  Energy consumption RT of ith vehicle
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t15.i1.w1          .              .            +INF           -0.1870      
+t15.i1.w2          .              .            +INF             .          
+t15.i1.w3          .              .            +INF           -0.0453      
+t15.i2.w1          .              .            +INF           -0.1870      
+t15.i2.w2          .              .            +INF             .          
+t15.i2.w3          .              .            +INF           -0.0453      
+t15.i3.w1          .              .            +INF           -0.2605      
+t15.i3.w2          .              .            +INF             .          
+t15.i3.w3          .             6.0000        +INF             .          
+t16.i1.w1          .              .            +INF           -0.1895      
+t16.i1.w2          .              .            +INF             .          
+t16.i1.w3          .              .            +INF           -0.0534      
+t16.i2.w1          .              .            +INF           -0.1895      
+t16.i2.w2          .              .            +INF             .          
+t16.i2.w3          .              .            +INF           -0.0534      
+t16.i3.w1          .              .            +INF           -0.1895      
+t16.i3.w2          .              .            +INF             .          
+t16.i3.w3          .              .            +INF           -0.0534      
+
+---- VAR Pmax  Max RT Power consumption of ith vehicle
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .i1.w1        -INF            6.0000        +INF             .          
+t1 .i1.w2        -INF             .            +INF             .          
+t1 .i1.w3        -INF            6.0000        +INF             .          
+t1 .i2.w1        -INF             .            +INF             .          
+t1 .i2.w2        -INF             .            +INF             .          
+t1 .i2.w3        -INF             .            +INF             .          
+t1 .i3.w1        -INF             .            +INF             .          
+t1 .i3.w2        -INF             .            +INF             .          
+t1 .i3.w3        -INF             .            +INF             .          
+t2 .i1.w1        -INF            6.0000        +INF             .          
+t2 .i1.w2        -INF             .            +INF             .          
+t2 .i1.w3        -INF            6.0000        +INF             .          
+t2 .i2.w1        -INF             .            +INF             .          
+t2 .i2.w2        -INF            6.0000        +INF             .          
+t2 .i2.w3        -INF             .            +INF             .          
+t2 .i3.w1        -INF            6.0000        +INF             .          
+t2 .i3.w2        -INF             .            +INF             .          
+t2 .i3.w3        -INF            6.0000        +INF             .          
+t3 .i1.w1        -INF            6.0000        +INF             .          
+t3 .i1.w2        -INF             .            +INF             .          
+t3 .i1.w3        -INF            6.0000        +INF             .          
+t3 .i2.w1        -INF            6.0000        +INF             .          
+t3 .i2.w2        -INF            6.0000        +INF             .          
+t3 .i2.w3        -INF            6.0000        +INF             .          
+t3 .i3.w1        -INF            6.0000        +INF             .          
+t3 .i3.w2        -INF             .            +INF             .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 40
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR Pmax  Max RT Power consumption of ith vehicle
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t3 .i3.w3        -INF            6.0000        +INF             .          
+t4 .i1.w1        -INF            6.0000        +INF             .          
+t4 .i1.w2        -INF            6.0000        +INF             .          
+t4 .i1.w3        -INF            6.0000        +INF             .          
+t4 .i2.w1        -INF            6.0000        +INF             .          
+t4 .i2.w2        -INF            6.0000        +INF             .          
+t4 .i2.w3        -INF            6.0000        +INF             .          
+t4 .i3.w1        -INF            6.0000        +INF             .          
+t4 .i3.w2        -INF            6.0000        +INF             .          
+t4 .i3.w3        -INF            6.0000        +INF             .          
+t5 .i1.w1        -INF            6.0000        +INF             .          
+t5 .i1.w2        -INF            6.0000        +INF             .          
+t5 .i1.w3        -INF            6.0000        +INF             .          
+t5 .i2.w1        -INF            6.0000        +INF             .          
+t5 .i2.w2        -INF            6.0000        +INF             .          
+t5 .i2.w3        -INF            6.0000        +INF             .          
+t5 .i3.w1        -INF            6.0000        +INF             .          
+t5 .i3.w2        -INF            6.0000        +INF             .          
+t5 .i3.w3        -INF            6.0000        +INF             .          
+t6 .i1.w1        -INF            6.0000        +INF             .          
+t6 .i1.w2        -INF            6.0000        +INF             .          
+t6 .i1.w3        -INF            6.0000        +INF             .          
+t6 .i2.w1        -INF            6.0000        +INF             .          
+t6 .i2.w2        -INF            6.0000        +INF             .          
+t6 .i2.w3        -INF            6.0000        +INF             .          
+t6 .i3.w1        -INF            6.0000        +INF             .          
+t6 .i3.w2        -INF            6.0000        +INF             .          
+t6 .i3.w3        -INF            6.0000        +INF             .          
+t7 .i1.w1        -INF            6.0000        +INF             .          
+t7 .i1.w2        -INF            6.0000        +INF             .          
+t7 .i1.w3        -INF            6.0000        +INF             .          
+t7 .i2.w1        -INF            6.0000        +INF             .          
+t7 .i2.w2        -INF            6.0000        +INF             .          
+t7 .i2.w3        -INF            6.0000        +INF             .          
+t7 .i3.w1        -INF            6.0000        +INF             .          
+t7 .i3.w2        -INF            6.0000        +INF             .          
+t7 .i3.w3        -INF            6.0000        +INF             .          
+t8 .i1.w1        -INF            6.0000        +INF             .          
+t8 .i1.w2        -INF            6.0000        +INF             .          
+t8 .i1.w3        -INF            6.0000        +INF             .          
+t8 .i2.w1        -INF            6.0000        +INF             .          
+t8 .i2.w2        -INF            6.0000        +INF             .          
+t8 .i2.w3        -INF            6.0000        +INF             .          
+t8 .i3.w1        -INF            6.0000        +INF             .          
+t8 .i3.w2        -INF            6.0000        +INF             .          
+t8 .i3.w3        -INF            6.0000        +INF             .          
+t9 .i1.w1        -INF            6.0000        +INF             .          
+t9 .i1.w2        -INF            6.0000        +INF             .          
+t9 .i1.w3        -INF            6.0000        +INF             .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 41
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR Pmax  Max RT Power consumption of ith vehicle
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t9 .i2.w1        -INF            6.0000        +INF             .          
+t9 .i2.w2        -INF            6.0000        +INF             .          
+t9 .i2.w3        -INF            6.0000        +INF             .          
+t9 .i3.w1        -INF            6.0000        +INF             .          
+t9 .i3.w2        -INF            6.0000        +INF             .          
+t9 .i3.w3        -INF            6.0000        +INF             .          
+t10.i1.w1        -INF            6.0000        +INF             .          
+t10.i1.w2        -INF            6.0000        +INF             .          
+t10.i1.w3        -INF            6.0000        +INF             .          
+t10.i2.w1        -INF            6.0000        +INF             .          
+t10.i2.w2        -INF            6.0000        +INF             .          
+t10.i2.w3        -INF            6.0000        +INF             .          
+t10.i3.w1        -INF            6.0000        +INF             .          
+t10.i3.w2        -INF            6.0000        +INF             .          
+t10.i3.w3        -INF            6.0000        +INF             .          
+t11.i1.w1        -INF            6.0000        +INF             .          
+t11.i1.w2        -INF            6.0000        +INF             .          
+t11.i1.w3        -INF            6.0000        +INF             .          
+t11.i2.w1        -INF            6.0000        +INF             .          
+t11.i2.w2        -INF            6.0000        +INF             .          
+t11.i2.w3        -INF            6.0000        +INF             .          
+t11.i3.w1        -INF            6.0000        +INF             .          
+t11.i3.w2        -INF            6.0000        +INF             .          
+t11.i3.w3        -INF            6.0000        +INF             .          
+t12.i1.w1        -INF             .            +INF             .          
+t12.i1.w2        -INF            6.0000        +INF             .          
+t12.i1.w3        -INF             .            +INF             .          
+t12.i2.w1        -INF            6.0000        +INF             .          
+t12.i2.w2        -INF            6.0000        +INF             .          
+t12.i2.w3        -INF            6.0000        +INF             .          
+t12.i3.w1        -INF            6.0000        +INF             .          
+t12.i3.w2        -INF            6.0000        +INF             .          
+t12.i3.w3        -INF            6.0000        +INF             .          
+t13.i1.w1        -INF             .            +INF             .          
+t13.i1.w2        -INF            6.0000        +INF             .          
+t13.i1.w3        -INF             .            +INF             .          
+t13.i2.w1        -INF            6.0000        +INF             .          
+t13.i2.w2        -INF            6.0000        +INF             .          
+t13.i2.w3        -INF            6.0000        +INF             .          
+t13.i3.w1        -INF            6.0000        +INF             .          
+t13.i3.w2        -INF            6.0000        +INF             .          
+t13.i3.w3        -INF            6.0000        +INF             .          
+t14.i1.w1        -INF             .            +INF             .          
+t14.i1.w2        -INF            6.0000        +INF             .          
+t14.i1.w3        -INF             .            +INF             .          
+t14.i2.w1        -INF             .            +INF             .          
+t14.i2.w2        -INF            6.0000        +INF             .          
+t14.i2.w3        -INF             .            +INF             .          
+t14.i3.w1        -INF            6.0000        +INF             .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 42
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR Pmax  Max RT Power consumption of ith vehicle
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t14.i3.w2        -INF             .            +INF             .          
+t14.i3.w3        -INF            6.0000        +INF             .          
+t15.i1.w1        -INF             .            +INF             .          
+t15.i1.w2        -INF            6.0000        +INF             .          
+t15.i1.w3        -INF             .            +INF             .          
+t15.i2.w1        -INF             .            +INF             .          
+t15.i2.w2        -INF            6.0000        +INF             .          
+t15.i2.w3        -INF             .            +INF             .          
+t15.i3.w1        -INF            6.0000        +INF             .          
+t15.i3.w2        -INF             .            +INF             .          
+t15.i3.w3        -INF            6.0000        +INF             .          
+t16.i1.w1        -INF             .            +INF             .          
+t16.i1.w2        -INF             .            +INF             .          
+t16.i1.w3        -INF             .            +INF             .          
+t16.i2.w1        -INF             .            +INF             .          
+t16.i2.w2        -INF             .            +INF             .          
+t16.i2.w3        -INF             .            +INF             .          
+t16.i3.w1        -INF            6.0000        +INF             .          
+t16.i3.w2        -INF             .            +INF             .          
+t16.i3.w3        -INF            6.0000        +INF             .          
+
+---- VAR Delta_E  Energy difference RT & DA
+
+              LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .w1        -INF             .            +INF             .          
+t1 .w2        -INF             .            +INF             .          
+t1 .w3        -INF            6.0000        +INF             .          
+t2 .w1        -INF             .            +INF             .          
+t2 .w2        -INF             .            +INF             .          
+t2 .w3        -INF            2.6667        +INF             .          
+t3 .w1        -INF             .            +INF             .          
+t3 .w2        -INF             .            +INF             .          
+t3 .w3        -INF             .            +INF             .          
+t4 .w1        -INF          -18.0000        +INF             .          
+t4 .w2        -INF           -6.0000        +INF             .          
+t4 .w3        -INF          -18.0000        +INF             .          
+t5 .w1        -INF          -10.5556        +INF             .          
+t5 .w2        -INF           -9.2222        +INF             .          
+t5 .w3        -INF          -10.5556        +INF             .          
+t6 .w1        -INF           -9.0000        +INF             .          
+t6 .w2        -INF           -9.0000        +INF             .          
+t6 .w3        -INF           -9.0000        +INF             .          
+t7 .w1        -INF           -9.0000        +INF             .          
+t7 .w2        -INF           -9.0000        +INF             .          
+t7 .w3        -INF           -9.0000        +INF             .          
+t8 .w1        -INF           -9.0000        +INF             .          
+t8 .w2        -INF           -9.0000        +INF             .          
+t8 .w3        -INF           -9.0000        +INF             .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 43
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR Delta_E  Energy difference RT & DA
+
+              LOWER          LEVEL          UPPER         MARGINAL
+
+t9 .w1        -INF           -9.0000        +INF             .          
+t9 .w2        -INF           -9.0000        +INF             .          
+t9 .w3        -INF           -9.0000        +INF             .          
+t10.w1        -INF            9.0000        +INF             .          
+t10.w2        -INF            9.0000        +INF             .          
+t10.w3        -INF            9.0000        +INF             .          
+t11.w1        -INF            9.0000        +INF             .          
+t11.w2        -INF            9.0000        +INF             .          
+t11.w3        -INF            9.0000        +INF             .          
+t12.w1        -INF            6.0000        +INF             .          
+t12.w2        -INF            7.3333        +INF             .          
+t12.w3        -INF            6.0000        +INF             .          
+t13.w1        -INF          -12.0000        +INF             .          
+t13.w2        -INF          -12.0000        +INF             .          
+t13.w3        -INF          -12.0000        +INF             .          
+t14.w1        -INF            3.0000        +INF             .          
+t14.w2        -INF            3.0000        +INF             .          
+t14.w3        -INF            3.0000        +INF             .          
+t15.w1        -INF             .            +INF             .          
+t15.w2        -INF             .            +INF             .          
+t15.w3        -INF            6.0000        +INF             .          
+t16.w1        -INF             .            +INF             .          
+t16.w2        -INF             .            +INF             .          
+t16.w3        -INF             .            +INF             .          
+
+                           LOWER          LEVEL          UPPER         MARGINAL
+
+---- VAR Profit            -INF           22.9876        +INF             .          
+---- VAR A                 -INF           32.6160        +INF             .          
+---- VAR B                 -INF          -14.2946        +INF             .          
+---- VAR R                 -INF           41.3090        +INF             .          
+
+  Profit  Aggregator Profit
+  A  DA cost
+  B  RT Cost
+  R  Regulation Return
+
+---- VAR Full  Fully charged
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .i1.w1        -INF             .            +INF             .          
+t1 .i1.w2        -INF             .            +INF             .          
+t1 .i1.w3        -INF             .            +INF             .          
+t1 .i2.w1        -INF             .            +INF             .          
+t1 .i2.w2        -INF             .            +INF             .          
+t1 .i2.w3        -INF             .            +INF             .          
+t1 .i3.w1        -INF             .            +INF             .          
+t1 .i3.w2        -INF             .            +INF             .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 44
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR Full  Fully charged
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t1 .i3.w3        -INF             .            +INF             .          
+t2 .i1.w1        -INF             .            +INF             .          
+t2 .i1.w2        -INF             .            +INF             .          
+t2 .i1.w3        -INF             .            +INF             .          
+t2 .i2.w1        -INF             .            +INF             .          
+t2 .i2.w2        -INF             .            +INF             .          
+t2 .i2.w3        -INF             .            +INF             .          
+t2 .i3.w1        -INF             .            +INF             .          
+t2 .i3.w2        -INF             .            +INF             .          
+t2 .i3.w3        -INF             .            +INF             .          
+t3 .i1.w1        -INF             .            +INF             .          
+t3 .i1.w2        -INF             .            +INF             .          
+t3 .i1.w3        -INF             .            +INF             .          
+t3 .i2.w1        -INF             .            +INF             .          
+t3 .i2.w2        -INF             .            +INF             .          
+t3 .i2.w3        -INF             .            +INF             .          
+t3 .i3.w1        -INF             .            +INF             .          
+t3 .i3.w2        -INF             .            +INF             .          
+t3 .i3.w3        -INF             .            +INF             .          
+t4 .i1.w1        -INF             .            +INF             .          
+t4 .i1.w2        -INF             .            +INF             .          
+t4 .i1.w3        -INF             .            +INF             .          
+t4 .i2.w1        -INF             .            +INF             .          
+t4 .i2.w2        -INF             .            +INF             .          
+t4 .i2.w3        -INF             .            +INF             .          
+t4 .i3.w1        -INF             .            +INF             .          
+t4 .i3.w2        -INF             .            +INF             .          
+t4 .i3.w3        -INF             .            +INF             .          
+t5 .i1.w1        -INF             .            +INF             .          
+t5 .i1.w2        -INF             .            +INF             .          
+t5 .i1.w3        -INF             .            +INF             .          
+t5 .i2.w1        -INF             .            +INF             .          
+t5 .i2.w2        -INF             .            +INF             .          
+t5 .i2.w3        -INF             .            +INF             .          
+t5 .i3.w1        -INF             .            +INF             .          
+t5 .i3.w2        -INF             .            +INF             .          
+t5 .i3.w3        -INF             .            +INF             .          
+t6 .i1.w1        -INF             .            +INF             .          
+t6 .i1.w2        -INF             .            +INF             .          
+t6 .i1.w3        -INF             .            +INF             .          
+t6 .i2.w1        -INF             .            +INF             .          
+t6 .i2.w2        -INF             .            +INF             .          
+t6 .i2.w3        -INF             .            +INF             .          
+t6 .i3.w1        -INF             .            +INF             .          
+t6 .i3.w2        -INF             .            +INF             .          
+t6 .i3.w3        -INF             .            +INF             .          
+t7 .i1.w1        -INF             .            +INF             .          
+t7 .i1.w2        -INF             .            +INF             .          
+t7 .i1.w3        -INF             .            +INF             .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 45
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR Full  Fully charged
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t7 .i2.w1        -INF             .            +INF             .          
+t7 .i2.w2        -INF             .            +INF             .          
+t7 .i2.w3        -INF             .            +INF             .          
+t7 .i3.w1        -INF             .            +INF             .          
+t7 .i3.w2        -INF             .            +INF             .          
+t7 .i3.w3        -INF             .            +INF             .          
+t8 .i1.w1        -INF             .            +INF             .          
+t8 .i1.w2        -INF             .            +INF             .          
+t8 .i1.w3        -INF             .            +INF             .          
+t8 .i2.w1        -INF             .            +INF             .          
+t8 .i2.w2        -INF             .            +INF             .          
+t8 .i2.w3        -INF             .            +INF             .          
+t8 .i3.w1        -INF             .            +INF             .          
+t8 .i3.w2        -INF             .            +INF             .          
+t8 .i3.w3        -INF             .            +INF             .          
+t9 .i1.w1        -INF             .            +INF             .          
+t9 .i1.w2        -INF             .            +INF             .          
+t9 .i1.w3        -INF             .            +INF             .          
+t9 .i2.w1        -INF             .            +INF             .          
+t9 .i2.w2        -INF             .            +INF             .          
+t9 .i2.w3        -INF             .            +INF             .          
+t9 .i3.w1        -INF             .            +INF             .          
+t9 .i3.w2        -INF             .            +INF             .          
+t9 .i3.w3        -INF             .            +INF             .          
+t10.i1.w1        -INF             .            +INF             .          
+t10.i1.w2        -INF             .            +INF             .          
+t10.i1.w3        -INF             .            +INF             .          
+t10.i2.w1        -INF             .            +INF             .          
+t10.i2.w2        -INF             .            +INF             .          
+t10.i2.w3        -INF             .            +INF             .          
+t10.i3.w1        -INF             .            +INF             .          
+t10.i3.w2        -INF             .            +INF             .          
+t10.i3.w3        -INF             .            +INF             .          
+t11.i1.w1        -INF             .            +INF             .          
+t11.i1.w2        -INF             .            +INF             .          
+t11.i1.w3        -INF             .            +INF             .          
+t11.i2.w1        -INF             .            +INF             .          
+t11.i2.w2        -INF             .            +INF             .          
+t11.i2.w3        -INF             .            +INF             .          
+t11.i3.w1        -INF             .            +INF             .          
+t11.i3.w2        -INF             .            +INF             .          
+t11.i3.w3        -INF             .            +INF             .          
+t12.i1.w1        -INF             .            +INF             .          
+t12.i1.w2        -INF             .            +INF             .          
+t12.i1.w3        -INF             .            +INF             .          
+t12.i2.w1        -INF             .            +INF             .          
+t12.i2.w2        -INF             .            +INF             .          
+t12.i2.w3        -INF             .            +INF             .          
+t12.i3.w1        -INF             .            +INF             .          
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 46
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+Solution Report     SOLVE Maxprofit Using MIP From line 106
+
+
+     VAR Full  Fully charged
+
+                 LOWER          LEVEL          UPPER         MARGINAL
+
+t12.i3.w2        -INF             .            +INF             .          
+t12.i3.w3        -INF             .            +INF             .          
+t13.i1.w1        -INF             .            +INF             .          
+t13.i1.w2        -INF             .            +INF             .          
+t13.i1.w3        -INF             .            +INF             .          
+t13.i2.w1        -INF             .            +INF             .          
+t13.i2.w2        -INF             .            +INF             .          
+t13.i2.w3        -INF             .            +INF             .          
+t13.i3.w1        -INF             .            +INF             .          
+t13.i3.w2        -INF             .            +INF             .          
+t13.i3.w3        -INF             .            +INF             .          
+t14.i1.w1        -INF             .            +INF             .          
+t14.i1.w2        -INF             .            +INF             .          
+t14.i1.w3        -INF             .            +INF             .          
+t14.i2.w1        -INF             .            +INF             .          
+t14.i2.w2        -INF             .            +INF             .          
+t14.i2.w3        -INF             .            +INF             .          
+t14.i3.w1        -INF             .            +INF             .          
+t14.i3.w2        -INF             .            +INF             .          
+t14.i3.w3        -INF             .            +INF             .          
+t15.i1.w1        -INF             .            +INF             .          
+t15.i1.w2        -INF             .            +INF             .          
+t15.i1.w3        -INF             .            +INF             .          
+t15.i2.w1        -INF             .            +INF             .          
+t15.i2.w2        -INF             .            +INF             .          
+t15.i2.w3        -INF             .            +INF             .          
+t15.i3.w1        -INF             .            +INF             .          
+t15.i3.w2        -INF             .            +INF             .          
+t15.i3.w3        -INF             .            +INF             .          
+t16.i1.w1        -INF             .            +INF             .          
+t16.i1.w2        -INF             .            +INF             .          
+t16.i1.w3        -INF             .            +INF             .          
+t16.i2.w1        -INF             .            +INF             .          
+t16.i2.w2        -INF             .            +INF             .          
+t16.i2.w3        -INF             .            +INF             .          
+t16.i3.w1        -INF             .            +INF             .          
+t16.i3.w2        -INF             .            +INF             .          
+t16.i3.w3        -INF             .            +INF             .          
+
+
+**** REPORT SUMMARY :        0     NONOPT
+                             0 INFEASIBLE
+                             0  UNBOUNDED
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 47
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+E x e c u t i o n
+
+
+----    109 VARIABLE Profit.L              =       22.988  Aggregator Profit
+            VARIABLE A.L                   =       32.616  DA cost
+            VARIABLE B.L                   =      -14.295  RT Cost
+            VARIABLE R.L                   =       41.309  Regulation Return
+
+----    109 VARIABLE E_DA.L  Energy bid day ahead
+
+t4  18.000,    t5  18.000,    t6  18.000,    t7  18.000,    t8  18.000,    t9  18.000,    t13 18.000
+
+
+----    109 VARIABLE Delta_E.L  Energy difference RT & DA
+
+             w1          w2          w3
+
+t1                                6.000
+t2                                2.667
+t4      -18.000      -6.000     -18.000
+t5      -10.556      -9.222     -10.556
+t6       -9.000      -9.000      -9.000
+t7       -9.000      -9.000      -9.000
+t8       -9.000      -9.000      -9.000
+t9       -9.000      -9.000      -9.000
+t10       9.000       9.000       9.000
+t11       9.000       9.000       9.000
+t12       6.000       7.333       6.000
+t13     -12.000     -12.000     -12.000
+t14       3.000       3.000       3.000
+t15                               6.000
+
+
+----    109 VARIABLE R_DA.L  Regulation bid day ahead
+
+t5  7.444,    t6  9.000,    t7  9.000,    t8  9.000,    t9  9.000,    t10 9.000,    t11 9.000,    t12 6.000,    t13 6.000,    t14 3.000
+
+
+----    109 VARIABLE E_RTi.L  Energy consumption RT of ith vehicle
+
+                w1          w2          w3
+
+t1 .i1                               6.000
+t2 .i3                               2.667
+t4 .i1                   6.000
+t4 .i3                   6.000
+t5 .i1       6.000       6.000       6.000
+t5 .i2                               1.444
+t5 .i3       1.444       2.778
+t6 .i1       6.000       3.000       0.333
+t6 .i2                               2.667
+t6 .i3       3.000       6.000       6.000
+t7 .i1       3.000       3.333       6.000
+t7 .i2       6.000
+t7 .i3                   5.667       3.000
+t8 .i1       6.000       6.000       6.000
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 48
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+E x e c u t i o n
+
+
+        109 VARIABLE E_RTi.L  Energy consumption RT of ith vehicle
+
+                w1          w2          w3
+
+t8 .i2                               0.222
+t8 .i3       3.000       3.000       2.778
+t9 .i1                   3.000       6.000
+t9 .i2       3.000
+t9 .i3       6.000       6.000       3.000
+t10.i1       4.889       6.000       3.000
+t10.i2       4.111
+t10.i3                   3.000       6.000
+t11.i1       3.000
+t11.i2                   3.000       3.000
+t11.i3       6.000       6.000       6.000
+t12.i2       2.222       1.333       6.000
+t12.i3       3.778       6.000
+t13.i2                   6.000
+t13.i3       6.000                   6.000
+t14.i2                   3.000
+t14.i3       3.000                   3.000
+t15.i3                               6.000
+
+
+----    109 VARIABLE E_RT.L  Energy consumption RT Total
+
+             w1          w2          w3
+
+t1                                6.000
+t2                                2.667
+t4                   12.000
+t5        7.444       8.778       7.444
+t6        9.000       9.000       9.000
+t7        9.000       9.000       9.000
+t8        9.000       9.000       9.000
+t9        9.000       9.000       9.000
+t10       9.000       9.000       9.000
+t11       9.000       9.000       9.000
+t12       6.000       7.333       6.000
+t13       6.000       6.000       6.000
+t14       3.000       3.000       3.000
+t15                               6.000
+
+
+----    109 VARIABLE SOC.L  SOC
+
+                w1          w2          w3
+
+t1 .i1       0.640                   0.600
+t2 .i1       0.640                   0.654
+t2 .i2                   0.700
+t2 .i3       0.610                   0.500
+t3 .i1       0.640                   0.654
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 49
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+E x e c u t i o n
+
+
+        109 VARIABLE SOC.L  SOC
+
+                w1          w2          w3
+
+t3 .i2       0.670       0.700       0.700
+t3 .i3       0.610                   0.524
+t4 .i1       0.640       0.600       0.654
+t4 .i2       0.670       0.700       0.700
+t4 .i3       0.610       0.500       0.524
+t5 .i1       0.640       0.654       0.654
+t5 .i2       0.670       0.700       0.700
+t5 .i3       0.610       0.554       0.524
+t6 .i1       0.694       0.708       0.708
+t6 .i2       0.670       0.700       0.722
+t6 .i3       0.623       0.579       0.524
+t7 .i1       0.748       0.735       0.711
+t7 .i2       0.670       0.700       0.762
+t7 .i3       0.650       0.633       0.578
+t8 .i1       0.775       0.765       0.765
+t8 .i2       0.760       0.700       0.762
+t8 .i3       0.650       0.684       0.605
+t9 .i1       0.829       0.819       0.819
+t9 .i2       0.760       0.700       0.765
+t9 .i3       0.677       0.711       0.630
+t10.i1       0.829       0.846       0.873
+t10.i2       0.805       0.700       0.765
+t10.i3       0.731       0.765       0.657
+t11.i1       0.873       0.900       0.900
+t11.i2       0.867       0.700       0.765
+t11.i3       0.731       0.792       0.711
+t12.i1       0.900       0.900       0.900
+t12.i2       0.867       0.745       0.810
+t12.i3       0.785       0.846       0.765
+t13.i1       0.900       0.900       0.900
+t13.i2       0.900       0.765       0.900
+t13.i3       0.819       0.900       0.765
+t14.i1       0.900       0.900       0.900
+t14.i2       0.900       0.855       0.900
+t14.i3       0.873       0.900       0.819
+t15.i1       0.900       0.900       0.900
+t15.i2       0.900       0.900       0.900
+t15.i3       0.900       0.900       0.846
+t16.i1       0.900       0.900       0.900
+t16.i2       0.900       0.900       0.900
+t16.i3       0.900       0.900       0.900
+
+
+----    109 VARIABLE Full.L  Fully charged
+
+                      ( ALL       0.000 )
+
+GAMS 24.8.5  r61358 Released May 10, 2017 DEX-DEG x86 64bit/Mac OS X                                                                                                                                                                  04/04/18 16:09:42 Page 50
+G e n e r a l   A l g e b r a i c   M o d e l i n g   S y s t e m
+E x e c u t i o n
+
+
+EXECUTION TIME       =        0.014 SECONDS      3 MB  24.8.5 r61358 DEX-DEG
+
+
+USER: Medium MUD - 10 User License                   S160610:1022AN-GEN
+      Royal Institute of Technology (KTH), Electricity Market ResDC8861
+      License for teaching and research at degree granting institutions
+
+
+**** FILE SUMMARY
+
+Input      /Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob/Vagro_3S_wgdx.gms
+Output     /Users/jacobdalton/Dropbox/EG230X_MSc_Tibber/04_Code/Jacob/Vagro_3S_wgdx.lst
